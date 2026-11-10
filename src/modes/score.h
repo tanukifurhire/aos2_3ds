@@ -33,7 +33,7 @@ typedef struct {
 void modes_match_result(const aos_world *w, modes_result *out);
 
 /* FUN_00792f40: insert (score, char) into the difficulty's top 10; returns the position
- * 0..9 or 10 (not ranked). The new entry's name is 7 x '-' (0x2d). Strictly greater
+ * 0..9 or 10 (not ranked). The new entry's name is 7 x 45 (0x2d = blank letter index, FUN_00659480). Strictly greater
  * scores rank above equal ones already in the table. Sets s->dirty. */
 int modes_rank_insert(aos_save *s, int difficulty, int32_t score, int32_t character);
 /* Name entry result (FUN_00658550 writes the letters; port helper). */

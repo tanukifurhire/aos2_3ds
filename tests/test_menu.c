@@ -5,6 +5,8 @@
 #include <string.h>
 
 #include "../src/app/menu.h"
+#include "../src/app/modes_flow.h"
+#include "../src/app/modes_scenes.h"
 #include "../src/app/music.h"
 #include "../src/app/scene.h"
 #include "../src/app/scene_core.h"
@@ -242,6 +244,80 @@ static void test_exit(void)
 	CHECK(scene_requested() == SCENE_QUIT);
 }
 
+
+/* Part D: arcade game over -> name entry (0x19a) -> ranking view (400); main menu -> ranking. */
+static aos_world fake_w;
+static void fake_decided(int p1wins, int32_t score)
+{
+	memset(&fake_w, 0, sizeof fake_w);
+	fake_w.p[0].hp = p1wins ? 1 : 0;
+	fake_w.p[1].hp = p1wins ? 0 : 1;
+	fake_w.nRoundRecs = 1;
+	fake_w.roundRec[0][p1wins ? 0 : 1].score = score;
+	modes_flow_game_exit(MODES_EXIT_DECIDED, &fake_w);
+}
+
+static void test_ranking(void)
+{
+	static const scene_def battle = {.name = "battle"};
+	scene_register(SCENE_BATTLE, &battle);
+	modes_flow_init(77, NULL);
+	scene_core_start(SCENE_MENU);
+	frame(0);
+	g_setup.mode = MODE_ARCADE;
+	g_setup.difficulty = 1;
+	modes_flow_start(10, 0);
+	frame(0);
+	CHECK(scene_current() == SCENE_BATTLE);
+	fake_decided(1, 50000); /* no Result scene registered: passed through to the next fight */
+	frame(0);
+	fake_decided(0, 0);     /* lost: game over -> menu */
+	frame(0);
+	CHECK(scene_current() == SCENE_MENU && modes_flow_run()->rank == 0);
+	frame(0);
+	CHECK(g_menu.state == MS_NAME_ENTRY && g_rank.page == 1 && g_rank.hl_rank == 0 && g_rank.score == 50000);
+	CHECK(strcmp(announce_text(), tr("ANNOUNCE_RANKING_ENTERNAME")) == 0);
+	for (int i = 0; i < 3; i++) /* blank -> A -> B -> C */
+		press(MB_DOWN);
+	press(MB_A);
+	press(MB_UP); /* blank -> '=' */
+	press(MB_A);
+	press(MB_DOWN);
+	press(MB_B); /* clears slot 2 ('A'), back to slot 1 */
+	CHECK(g_rank.pos == 1);
+	modes_save()->dirty = 0;
+	for (int i = 0; i < 6; i++)
+		press(MB_A);
+	CHECK(g_menu.state == MS_RANKING && modes_save()->dirty);
+	char name[8];
+	ranking_name(1, 0, true, name);
+	CHECK(strcmp(name, "C=") == 0);
+	CHECK(ranking_score(1, 0) == 50000 && ranking_char(1, 0) == 10);
+	ranking_name(1, 1, false, name);
+	CHECK(strcmp(name, "AAAAAAA") == 0); /* default entry 0 moved down */
+	for (int i = 0; i < 80; i++)
+		frame(0);
+	CHECK(g_rank.a == 1.0f && g_rank.v[0] == 0);
+	press(MB_RIGHT);
+	CHECK(g_rank.page == 2 && g_rank.v[0] > 0);
+	press(MB_LEFT);
+	press(MB_LEFT);
+	CHECK(g_rank.page == 0 && g_rank.v[0] < 0);
+	press(MB_LEFT);
+	CHECK(g_rank.page == 8 && ranking_rows(8) == 8 && ranking_char(8, 0) == 6);
+	press(MB_B);
+	CHECK(g_menu.state == MS_MAIN && g_rank.hl_rank == 10);
+	/* main menu item 6 -> ranking view */
+	while (g_menu.cursor != ITEM_RANKING)
+		press(MB_RIGHT);
+	press(MB_A);
+	CHECK(g_menu.state == MS_RANKING);
+	press(MB_A);
+	CHECK(g_menu.state == MS_MAIN);
+	CHECK(ranking_letter(26) == '0' && ranking_letter(44) == '=' && ranking_letter(45) == ' ');
+	scene_register(SCENE_BATTLE, NULL);
+}
+
 int main(void)
 {
 	if (!strings_init("extracted/script", LANG_EN)) {
@@ -258,6 +334,7 @@ int main(void)
 	test_match_and_training();
 	test_config();
 	test_exit();
+	test_ranking();
 	if (fails) {
 		printf("test_menu: %d failure(s)\n", fails);
 		return 1;

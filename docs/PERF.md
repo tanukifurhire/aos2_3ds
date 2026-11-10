@@ -13,6 +13,12 @@ simulation bit-identical. Nothing here has run on real hardware yet.
 - **Benchmark mode** (profile builds): if `sdmc:/aos2_bench.txt` exists the app runs each line
   `p1 p2 stage frames hyper [difficulty]` as CPU vs CPU (hyper 1 pins both gauges at 3.0), logs a summary per
   scenario and quits. Lists used here: `tools/bench/aos2_bench_perf.txt`, `tools/bench/aos2_bench_memory.txt`.
+  Since the menu rework the app starts straight in the Battle scene when the file exists (no Logo/Title/menus,
+  `main.c`); the bench branch of `battle_init` sets the match values the menus would (timer 180, 2 rounds,
+  handicap 2 = 9000 HP, both CPU). Fixed 2026-11-10: with the menus skipped `g_setup` was all zero, so the round
+  timer was 0 — every round ended by time-over at once and the runs only cycled round banners (looked hung, and
+  the numbers were idle frames: Star Breaker ×2 tick 104 µs / drawlist 49 µs instead of ~286 / ~1000). Verified in
+  Azahar Old 3DS mode: the full perf list runs and the app exits by itself (~4 min).
 - **Host cost proxy** `tests/run_perf.sh` (built with `-DAOS_PERF`, counters in src/sim/perf.h): per tick
   objects, collision pairs (aos_shape_hit calls / full evaluations), libm trig calls, bytes moved by pool
   erases, texture-name compares, draw commands, compact snapshot bytes.

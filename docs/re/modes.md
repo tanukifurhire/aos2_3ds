@@ -76,6 +76,16 @@ Battle(2) end ─> Result(3) (versus) or sequencer step (arcade/story; see §0.4
   `text_draw(FONT_*, s, x, y, align, rgba, scale, maxw)` with y = vertical centre of the first line
   (FUN_005931d0), `text_width()`, `text_wrap()`. Fonts packed: system, menu, menubig, menulabel, menusubtitle,
   winquote, dialogue (English glyph set, also covers ptbr/sp).
+- **Arcade/story flow** (`src/app/modes_flow.h`, Part D, stable): the run state, the app-wide cosmetic MT
+  `modes_cosmetic()` (opponent picks, "????" BGM, win quotes — never the sim RNG) and the progress save
+  `modes_save()`. Entry points (each ends with `scene_goto`, call from `update()`; all modes, versus included):
+  ArcSelect confirm `modes_flow_start(char, scheme)`; Battle end `modes_flow_game_exit(MODES_EXIT_DECIDED, &world)`,
+  pause Retry/Quit `modes_flow_game_exit(MODES_EXIT_RETRY / MODES_EXIT_QUIT, NULL)`; Result leaves
+  `modes_flow_result_exit(gameOver, cont)`; Conversation leaves `modes_flow_conv_exit()`; Endroll leaves
+  `modes_flow_endroll_exit()`. Scene inputs: `modes_flow_result()` / `modes_flow_lost()` (Result Init),
+  `modes_flow_conv_script()` / `modes_flow_conv_backdrop()` (Conversation Init), `modes_flow_run()` (rank, score,
+  continues), `modes_save()` (charOpen / stageOpen / bgmOpen, clear marks via `modes_arcade_cleared` /
+  `modes_story_cleared`). Saves are written by `modes_save_poll()` outside the Battle scene only.
 
 ### 0.2 Match-setup globals (the interface between menus and the fight)
 
@@ -749,9 +759,62 @@ A = local vs CPU, Y/B wireless, X lab) has to become a scene machine like `FUN_0
    from the menu (`DAT_0087fab0`).
 6. Keep input lab / wireless / volume options as menu entries (they are port additions).
 
+## B.8 Port implementation (Part B: src/app/select.c, select_draw.c, result_draw.c, selgfx.c)
+
+- **Logic** (portable, `tests/test_select.c`): ArcSelect FUN_0079df00/0079e590/0079e4b0, VS Select
+  FUN_0079acc0/0079c110/007a2a20/0079bfc0 (slot states, CPU-mode controller hand-over, option enable flags,
+  SP colour list, Random resolved at the VS screen, stage Random), Result FUN_00796030/00796ef0 (timeline,
+  continue 9→0 every 100 f + cancel speeds up, game over / continue flags), rank **FUN_00617740** (new:
+  time factor `secs < n·50/70/80/100/120 → 1/.8/.6/.4/.2 else .1`, HP factor `hp/(n·10000)` bucketed to
+  1/.8/.6/.4/.2/.1, S if HP factor 1.0 and time ≥ .8, else sum ≥1.7 S, ≥1.5 A, ≥1.2 B, ≥0.8 C, else D;
+  n = rounds played `DAT_00885a70+1`; argument = a by-value copy of 0x9b68e0, seconds/HP at +0x6c/+0x70,
+  disasm 0x5f5ba6), win quote FUN_00617110 (rolled on the cosmetic MT in `result_capture()`, called by the
+  Battle scene right before Game Exit — same RNG order as the PC), pause menu FUN_0068ce30/FUN_0068f4a0
+  offline branch (open only when frame > 199, no end banner, not decided; alpha ±0.075/f; items Return /
+  Move list / Retry / Exit; Retry/Quit: SE 0, BGM fade, transition 3, then Game Exit with 3/2 →
+  `modes_flow_game_exit`; Return: 91-frame resume countdown with SE 4 at 91/60/30 and SE 0, skipped in the
+  first 201 frames of a round).
+- **Flow**: ArcSelect confirm → `modes_flow_start` (Part D glue: builder + stepper(0)); Battle end →
+  `result_capture` + `modes_flow_game_exit(DECIDED)`; Result exit → `modes_flow_result_exit(gameOver, cont)`;
+  VS Select exit fills `g_setup` (colour FUN_007a2880, handicap, hyper control, stage, `music_resolve()`)
+  and goes to the Battle. Versus result → VS Select with everything kept (= the PC's "rematch via the
+  select"; there are no separate rematch/menu options in the PC result screen). The wireless lobby keeps
+  its own pickers (main.c).
+- **Loading**: when the exit transition of ArcSelect / VS / Result has finished, one frame shows
+  `loading.png` "NOW LOADING..." at (W−120s, H−40s) on black; the next scene's Init (Battle: synchronous
+  atlas/stage load) runs with that frame on screen.
+- **Textures** (tools/aos2pack/seltex.go → `romfs:/gfx/m3_b_*`, 283 files, 2.7 MB romfs): art at ~1.25×
+  its on-screen size (portrait sheets sel_chara0x at 0.25 → 512² ETC1A4, icons 0.25, result art res_chr
+  0.25 → 512² ETC1A4, res_bgp 0.25 ETC1), text-like images at 0.5 RGBA4 (sel_system, stagename,
+  res_system/tag/continue). Per palette folder: `<xx>_std00..02` (128² RGBA4), res_chr, res_sys. Loaded
+  by the scene Inits, all freed in the scene Exits (`bg_free_all`) together with the select's 3D stage —
+  nothing of Part B stays resident in a match (emulator, arcade Suguri vs Kyoko on stage 15: linear free
+  8874 KB in the first fight and again in the refight after result → continue). Budget (linear): ArcSelect ≈ 1.6 MB, VS ≈ 2.4 MB (incl. two
+  standing sprites, 7 stage cards and 8 noise cards), Result ≈ 2.1 MB; fonts as Part A.
+- **Deviations** (legibility / 3DS):
+  - Bottom screen: ArcSelect = command-mode choice with the subtitles, then a 5×3 touch grid of the pool
+    (original order) + the stats panel (FUN_007a49d0 content: difficulty, 4 bars, rank letters) + name;
+    VS = per-player option rows (handicap / colour / input / accept, values in the menu font) then the
+    stage list (touch) and BGM; Result = winner + full quote + score table + rank; Continue = digit + hints.
+    The top screen keeps the original layout at s = 0.4 except: no stats panels on top (bottom instead), no
+    VS option rows on top, command-mode bands 28 px tall with menubig titles (subtitles on the bottom), VS
+    stage-name plate drawn 1.5× (13 px → 19 px), name plates under the VS wheels 1.25×.
+  - Handicap values are shown as 50%..300% (sel_system's labels; = 4500..27000 HP); text ids 0x1d8..0x1dd
+    are not in the shipped text tables.
+  - VS stage cards: 2D projection (ortho, x' = W/2 − sin(a)·R·s, width × |cos a|, selected card on top);
+    stages 16/19 have no `stage<xx>` thumbnail → noise card. Exact CModel/camera not ported.
+  - Result: no battle-stage composite behind res_bgp (`DAT_009b6a20` render targets; background is
+    0xff555555 + res_bgp); win-quote letters appear 2 frames apart without the per-letter 10-frame fade.
+    Transitions 0x13/0x11 are drawn by the scene (`sel_wipe`, same rates/delays as FUN_00561c70).
+  - Pause menu visuals approximated (dim + blue "PAUSE" pill + 4 grey/white bands; FUN_006911c0's animated
+    band texture not ported); Move list shows only the move names (commandlist_names.txt), not the inputs.
+    The game stays frozen during the Retry/Quit fade (PC: unpauses with input locked).
+  - Replay saving (ANNOUNCE 0x38), Steam stats and DLC ownership checks skipped (all art present = owned).
+
 ## Open questions / UNVERIFIED
 - Handicap labels 0x1d8..0x1dd (the HP effect is settled, §D.3)
-  (registered outside FUN_00633e50 — literal strings?).
+  (registered outside FUN_00633e50 — literal strings?). sel_system.png carries "50% 75% 100% 150% 200% 300%"
+  (port shows those, B.8).
 - Auto/Auto mirror match in local VS: both colour 0? (dead code at 0x7a290e).
 - Projection of the stage-card camera (FUN_007a3510: eye (0,0,−500), far 1000).
 - Result background compositing via `DAT_009b6a20/6a24` render targets; whether the win quote is
@@ -955,6 +1018,61 @@ Open / UNVERIFIED:
 - **Bottom screen:** the text, in the app's dialogue font (16 px line, scale 1). Wrap boxes 272 x 96 (slot 0, indented 40) and 304 x 96 (slot 1) give at most 6 lines (sp), 4 (en, jp, ptbr, ru) and 3 (chs, cht, ko), with no shrinking.
 - **Portraits:** see FORMATS.md "Story conversations" (232x102 RGBA8, at most 3 per scene).
 
+## C.7 3DS scene (Part C renderer: `src/app/conv_scene.c`)
+
+Scene 5 registered by `conv_scenes_register()` (main.c). It only loads data, maps input, runs the events of
+`conv_frame` and draws `conv_view`; all behaviour is `src/modes/conv.c`.
+
+- **Init** (`FUN_004e35e0` + the stepper's `FUN_004bfc10`): script id / backdrop from `modes_flow_conv_script()` /
+  `modes_flow_conv_backdrop()` (Part D glue); language `g_config.language` (falls back to en when its font or text
+  is missing); `conv_script_load("romfs:/story", …)`; portraits of `conv_script_portraits` (C2D sprite sheets,
+  freed at Exit); the language's dialogue font (own loader, freed at Exit); `stage3ds_begin(backdrop)`; noise
+  textures; `conv_layout_original(font, 1.0, 400, 240)` with the bottom-screen boxes 272x96 / 304x96; `conv_init`
+  → `scene_fade(5)`. Menu fonts/textures and the help line are dropped.
+- **Frame**: `conv_frame(input, scene_fade_busy())`, then the stage update `FUN_004bfd30` with
+  `stage_g.gameMode = 5` (cameras use their non-match FOV, no stage SE). Events: FADE_IN/OUT → `scene_fade(5/1)`,
+  BGM_FADE → `music_request(0, 1, 1)` (= `FUN_004bee00(0,1,1)`), SE → the SE id whose file is the act's wav
+  (swing_h → 0x20, jya05 → 0x26, chain → 0x28; the PC loads the wav into slot 0x38, same sample, volume of the
+  id's table entry **UNVERIFIED** vs slot 0x38), EXIT → `conv_exit_next()` = `modes_flow_conv_exit()`
+  (Conversation Exit → story stepper(0)) — the only sequencer call; the test picker returns to itself.
+- **Input**: OK = A (state of `g_min.nr[MI_OK]`), attack = A as well (Weapon A), cancel = B, special = X or Y held
+  (the user's Special A/B, both carry S): fast-forward every 5 frames as the PC. **START** = skip the rest of the
+  script (port addition, §C.5 option): state 0x5a + `scene_fade(1)`, the normal Exit path.
+- **Top screen** = `FUN_004e38e0` at s = 0.4: clear `0xff0055aa`, stage, 黒地/白地 fills, letterbox 0..32 /
+  208..240, per slot the noise band (4 tiles of 102 px, texel-addressed noise[(frame/4)%8], vertex colour
+  0xff404040; slot 0 y 156..196, slot 1 y 44..84 — §C.5's "64..104" was a slip) and the portraits (232x102, slot 0
+  mirrored at x −36..196 / y 94..196, slot 1 at x 204..436 / y −18..84; colour α·0xffffff / α·0x808080, cross-fades
+  as §C.3). No text on the top screen.
+- **Bottom screen** (§C.5): black; slot 1 (top-right speaker) in the upper half, slot 0 (bottom-left speaker) in the
+  lower half — noise band across the screen at y 10..114 / 126..230 when the slot's band is on (1:1 texels like the
+  PC at s = 1: v 128 ± 52), text left-aligned at x 8 / x 40, first line centred 12 px below the band top, scale
+  sx/sy of the wrap, white speaking / `0xff808080` for `＄`, typewriter 1 code point per frame, no fade.
+- **Fonts**: en/ptbr/sp use `dialogue` (122 glyphs, 128² LA8, 32 KB); jp/chs/cht/ko/ru have their own
+  `dialogue_<lang>` packed from the original's language folder (jp, cn, cn, ko, ru; `fonts_dialogue.go`) with only
+  the glyphs of that language's story texts: jp 803 glyphs, chs 989, cht 994, ko 722 (512² LA8 = 512 KB each,
+  140–195 KB in romfs), ru 152 (256x128, 64 KB). So the conversation scene plays in all 8 languages (the menus are
+  still en/ptbr/sp only). `tests/test_conv_font.c`: every story code point has a glyph whenever the PC font has one
+  (U+3000 in the Latin/ko/ru fonts and U+942B in cn are missing on the PC too: drawn as nothing on both), and no line
+  shrinks in the 3DS boxes (max lines: sp 7, all others 4).
+- **Noise textures**: from the resident `systemMdl` atlas when a match loaded it, else only its page 1 (noise0..7,
+  hyperg/hyperr) for the scene. The atlas stores noise2/3/6 rotated (tex3ds); `spritebank_clamp_sub` collapses
+  rotated images to one texel, so the scene clamps with its own orientation-aware helper and flips the band
+  vertically with a negative quad height instead of a top/bottom-swapped crop (which would read as rotated).
+  **The in-match HUD banner strip (hud_c2d.c `hg_image`) has the same two issues for noise2/3/6** (lead: render
+  side, not changed here).
+- **Exit** (`FUN_004e3730`): frees script, text, portraits, font, noise page and ends the stage (the PC keeps it for
+  the fight's Game Init, which reloads it anyway; freeing it first lowers the peak).
+- **Debug entry**: main menu → **Y** opens the port-only picker (`SCENE_CONV_TEST` = 27): Left/Right script
+  (L/R: next character), Up/Down → language (all 8), A plays it with the ladder's backdrop (chapter 1 → stage 15,
+  2 → 16, 3/4 → 19), B back to the main menu; the conversation returns to the picker.
+- **Capture runner** (PROFILE builds): `sdmc:/aos2_convcap.txt`, lines `script lang step frames…`, boots straight into
+  the listed conversations, presses A every `step` frames (−1 = hold X), dumps both screens of the listed scene frames
+  to `sdmc:/cap/c<id>_<lang>_<frame>_{top,bot}.raw` and logs cost/memory to `sdmc:/cap/conv_log.txt`, then quits.
+- **Measured** (Azahar, Old 3DS mode, 100 %): linear free 26.2 MB at boot → 24.1 MB in a stage-16 conversation (en),
+  24.3 MB on stage 15, 23.6 MB with the jp font; back to 26.2 MB after Exit. Frame: cpu 1.1–1.6 ms with stage 16/19
+  (stage draw 0.86–0.97 ms), 0.4–0.5 ms over the 黒地 fill (stage 15 draw 0.17 ms), gpu 0.5 ms — 60 FPS.
+  Screenshots: `build/preview/modes_C_*.png`.
+
 # D. Arcade / story ladders, scoring, endings, staff roll, mode effects on the match
 
 Sources: `tools/re/dec/all.c`, disassembly via `xref.exe dis/rd` on aos2.exe. Table of every ladder step:
@@ -1120,7 +1238,7 @@ Story keeps no score.
 ### D.2.3 Ranking (FUN_00792f40) and name entry
 
 - Table `DAT_0087b7d0`, file `game.rkg` (0xca8 bytes, load all.c:445505 / save FUN_00792bf0): 3 difficulties ×
-  10 entries × 0x24: `+0 score, +4..+0x1c name (7 ints, new entries filled with 0x2d '-'), +0x20 character`.
+  10 entries × 0x24: `+0 score, +4..+0x1c name (7 ints, new entries filled with 0x2d = 45 = blank — a letter index, not '-', see §D.7.3), +0x20 character`.
   Default table: score `10000 − 1000*i`, name chars all = i, char 10 (even i) / 3 (odd i) (verified: FUN_00792a30 copies 9 dwords from `local_130`, whose 9th is the adjacent
   `local_110`, the same slot FUN_00792f40 writes the character to at +0x20).
 - `FUN_00792f40(diff, score, char)`: first i with `table[diff][i].score < score` (strictly greater wins); shift down,
@@ -1322,7 +1440,81 @@ below the top screen (virtual y 420..660 shifted) so credits enter from the bott
 Textures: convert the used 512×1024 left half of `resMdl/ed_staff1..4.png` to A8/L8 (additive white-on-black
 → alpha or luminance only; 512 KB each at 8 bpp, 256 KB at 4 bpp), load only for scene 11.
 
+## D.7 Port implementation (Part D, 2026-11-10)
+
+### D.7.1 Flow glue `src/app/modes_flow.[ch]` (API in §0.1.1)
+- One module owns the run (`ladder_run`), the last stepper output, the last match result, the app-wide cosmetic
+  MT (`modes_cosmetic()`, seeded once from `svcGetSystemTick` in `main()`; music.c's "????" pick uses it, Part B's
+  win quotes should too) and the progress save. Each entry point runs the ladder function of §D.1.5 and turns
+  `ladder_out` into `g_setup` (§0.2 values of Menu Exit case 0/1 + the stepper's chars/colours/stage/BGM, timer
+  180/999, rounds 1, handicap 2, P2 = CPU) + `scene_goto(out.scene)`. Battle Init uses `ladder_match_params()` in
+  arcade/story. Versus/training get the PC's versus paths (Result → VS Select, Retry → same match, Quit → VS Select).
+- Battle scene (main.c): match end → `modes_flow_game_exit(DECIDED, &world)` in arcade/story or when a Result
+  scene is registered (else the old in-place restart for versus); START (pause Quit until Part B's pause menu) →
+  `modes_flow_game_exit(QUIT)` in arcade/story.
+- Pass-through until Parts B/C land: a Result step with no registered Result scene counts as a won fight
+  (`ladder_result_exit(0,0)`) or, after a loss, as game over; a Conversation step with no scene is skipped
+  (`step(0)`); ArcSelect missing → menu. A whole arcade/story run is playable with only Battle + Endroll.
+- Host test `tests/test_flow_glue.c` (run_tests.sh): full arcade with continue/retry/quit, no-continue secret
+  boss stage + clear record + Star Breaker unlock, game over + ranking, a whole Sham story (conversation ids,
+  Sumika 2nd timer 999, story clear), pass-through, versus paths, save write/reload.
+- Profile builds only: `sdmc:/aos2_flow.txt` = "mode char difficulty frames [skip]" starts a run at boot and
+  decides every fight after `frames` frames as a P1 win with a fake round record (skip = 1 also unregisters
+  Result/Conversation to use the pass-through). Emulator evidence (Azahar Old 3DS mode, Sora and Suguri arcade
+  runs → staff roll → unlock popup → name entry → ranking): `build/preview/modes_D_*.png`.
+
+### D.7.2 Save integration
+- Two files: `sdmc:/3ds/aos2_3ds/config.ini` (Part A, `config_save`, written when the config menu closes) and
+  `sdmc:/3ds/aos2_3ds/progress.sav` (§D.5 format; unlocks, clears, wins, ranking, achievements). They never
+  touch the same data. Loaded at boot by `modes_flow_init` (missing/corrupt → defaults, written at once like
+  FUN_007c4450). The ladder/score code only sets `save.dirty`; `modes_save_poll()` writes (tmp + rename) from the
+  scene loop after the frame, **never while the Battle scene is current** — so the writes of Game Exit happen on
+  the first frame of the next scene. A failed write is not retried until the next change.
+- Who reads it: ArcSelect/VS Select (Part B) via `modes_save()` (charOpen/stageOpen/bgmOpen, clear marks
+  `modes_arcade_cleared(diff, c)` / `modes_story_cleared(c)`); the ranking view (pages 0..2).
+
+### D.7.3 Ranking, name entry, unlock popups (menu states 400 / 0x19a / 0x1a4; `src/app/ranking.c`, `ranking_draw.c`)
+Decoded from FUN_0065c670/FUN_0065c7c0, FUN_00658550/FUN_00658970, FUN_00646ee0/FUN_006471d0, FUN_006597b0,
+FUN_00659480 (constants read with `xref rd`):
+- **Letters**: a name slot holds an index 0..45 mapped by FUN_00659480: 0..25 `A..Z`, 26..35 `0..9`, 36..44
+  `. / ! ? ( ) " - =`, 45 = blank. FUN_00792f40 fills new entries with 45 (**0x2d is the blank index, not '-'**);
+  default entries hold i (→ "AAAAAAA" … "JJJJJJJ").
+- **Name entry 0x19a** (Menu Init after an arcade run: page = difficulty, cursor 0, help 0x36 if ranked; entered
+  even when not ranked): single row, Up/Down cycle the current letter (−/+1 wrapping over 46; Down from blank = A,
+  Up = '='), Left/Right move (0..6), confirm = next slot (the 7th confirm finishes: ranking view 400 on that page,
+  help 0x35, game.rkg saved — FUN_00792bf0), cancel on slot > 0 blanks the current slot and moves back. SE 0 /
+  1 / 2. Not ranked: confirm or cancel → 400 without SE/save. Draw: orange pill MENULABEL_SCORE, "RANKED!"
+  (0x23e) blinking 20/20 f, white band at H/2 with rank, trimmed name, total score, the player's eye strip
+  (`menuMdl/ttl_face`, cell (400(c>>4), 64(c&15)) 400×64), expanding ring (`ttl_ranking` (200,200)-(359,359), 40 f
+  period) at the end of the trimmed name (PC quirk: not at the cursor after Left).
+- **Ranking view 400** (main item 6, or after the name entry): 9 pages, Left/Right wrap (SE 2, rows slide in from
+  the right/left: `v[k] = ±((10−k)·0.25 + 1)`, −0.05/f, row alpha 1−|v|); confirm/cancel → 100 (SE 1, highlight
+  cleared). Pages 0..2 = Easy/Normal/Hard tables (rank, name, score, eye strip; the run's new entry pulses
+  additively 0xc0e1ff over 50 f); pages 3..8 = hard-coded tournament results (CEOtaku19, Q.Rapport2, Heat Up! 20,
+  Q.Rapport3, 10 Years, Q.Rapport4; 8 rows: rank text, player name, character) — no Steam needed (the Steam
+  leaderboard upload FUN_006593b0 is skipped). Header: green pill MENULABEL_RANKING, page title, bobbing arrows.
+- **Unlock popups 0x1a4** (Menu Init after an arcade/story run with pending messages; SE 5): black band H/2 ± 32s
+  with white edges, MENU_UNLOCK_CHARACTER/STAGE/BGM (0x23b/c/d), alphas +0.05/f only while no transition runs,
+  input once the band is full; confirm = next (SE 5, text re-fades); after the last: story → title (full reset),
+  arcade → name entry. Port: the message list is cleared after the last popup (PC: at the next run start).
+- **3DS layout**: the PC formulas at s = 0.5 on the top screen (rows 21 px apart from y 40, 16 px bands, eye strips
+  100×16 = packed size); menu font ×0.8 for rows (PC: Impact "memory" font, not packed). The PC builds the score
+  text at scale 1.0 (1.8× the name height at 800×600 — an oversight); the port draws it at row size. "RANKED!"
+  moved 40 px right to clear the larger pill. Bottom screen: page "n / 9" and key hints under the help line.
+- Host test: `tests/test_menu.c` `test_ranking` (game over → name entry → ranking view → pages → main menu).
+
+### D.7.4 Endroll (scene 11, `src/app/endroll.c`)
+Literal Init/Update/Draw/Exit of §D.4 in the 800×600 virtual plane at s = 1, top screen = window (200..600,
+180..420) (§D.6). **Staff page aspect**: the dst rects are taken as written — piece half sizes 176×176 / 176×224 /
+176×24 (`rd 817ab8/817abc/853b8c`: 176.0, 224.0, 24.0) for 504-px-wide sources of 737 / 1021 / 96 px, i.e. x 0.70
+vs y 0.48 / 0.44 / 0.50, while the logo from the same texture is drawn uniformly (0.50 × 0.505) and the page
+spacing (430, 460, 460, 784) matches the squeezed heights. Our reading: the PC really draws the credit pages
+squeezed vertically (~0.65 aspect), and the port does the same (no PC screenshot to confirm). Textures:
+`romfs:/gfx/m3_staff<N>_0.t3x` (tools/aos2pack/endroll.go: left 512×1024 → 352×512 L8, 256 KB each, loaded only in
+scene 11), drawn additively over 0xff222222; bottom screen plain 0xff222222. BGM 0x15 for Sham's story, else 4;
+A/START skips after the 51-frame wait (fade 2, 100 f), then `modes_flow_endroll_exit()`.
+
 ## Open questions
 
-- Visual aspect of the staff pages (D.4.1) — confirm with a PC screenshot.
+- Visual aspect of the staff pages (D.4.1) — confirm with a PC screenshot (port: squeezed as coded, D.7.4).
 - Menu item that sets `DAT_009b163c` for story (is a difficulty asked before story?) — menus section.

@@ -73,15 +73,28 @@ done
 "$ZIG" cc -std=gnu11 -Wall -Wextra -Werror -O1 -g -fsanitize=undefined -fno-sanitize-recover=all \
   src/modes/conv.c src/app/bmfont.c tests/test_conv.c -lm -o build/tests/test_conv.exe
 build/tests/test_conv.exe
+# dialogue fonts packed for the 3DS conversation scene vs the story texts (glyph coverage, no shrink in
+# the bottom-screen boxes; src/app/conv_scene.c, tools/aos2pack fonts_dialogue.go); unbuilt fonts are skipped
+"$ZIG" cc -std=gnu11 -Wall -Wextra -Werror -O1 -g -fsanitize=undefined -fno-sanitize-recover=all \
+  src/modes/conv.c src/app/bmfont.c tests/test_conv_font.c -lm -o build/tests/test_conv_font.exe
+build/tests/test_conv_font.exe build/romfs extracted
 # arcade/story ladders vs docs/re/modes_ladders.tsv, round records/score, ranking, unlocks, save (src/modes)
 "$ZIG" cc -std=gnu11 -Wall -Wextra -Werror -O1 -g -fsanitize=undefined -fno-sanitize-recover=all \
   src/modes/ladder.c src/modes/score.c src/modes/save.c src/sim/*.c src/sim/chars/*.c tests/test_modes.c -lm \
   -o build/tests/test_modes.exe
 build/tests/test_modes.exe docs/re/modes_ladders.tsv build/tests
+# arcade/story flow glue (src/app/modes_flow.c, Part D): ladder -> g_setup + scenes, continue/retry/quit, save
+"$ZIG" cc -std=gnu11 -Wall -Wextra -Werror -O1 -g -fsanitize=undefined -fno-sanitize-recover=all   src/app/modes_flow.c src/app/scene_core.c src/app/strings.c src/app/bmfont.c src/modes/ladder.c src/modes/score.c   src/modes/save.c src/sim/*.c src/sim/chars/*.c tests/test_flow_glue.c -lm -o build/tests/test_flow_glue.exe
+build/tests/test_flow_glue.exe build/tests
 # menu text (key-value scripts, BMFont parser/layout/wrap), scene core, Logo/Menu state machines (src/app, Part A)
 "$ZIG" cc -std=gnu11 -Wall -Wextra -Werror -O1 -g -fsanitize=undefined -fno-sanitize-recover=all \
   src/app/strings.c src/app/bmfont.c src/app/scene_core.c tests/test_text.c -lm -o build/tests/test_text.exe
 build/tests/test_text.exe
 "$ZIG" cc -std=gnu11 -Wall -Wextra -Werror -O1 -g -fsanitize=undefined -fno-sanitize-recover=all \
-  src/app/menu.c src/app/strings.c src/app/bmfont.c src/app/scene_core.c tests/test_menu.c -lm -o build/tests/test_menu.exe
+  src/app/menu.c src/app/strings.c src/app/bmfont.c src/app/scene_core.c src/app/ranking.c src/app/modes_flow.c src/modes/ladder.c src/modes/score.c src/modes/save.c src/sim/*.c src/sim/chars/*.c tests/test_menu.c -lm -o build/tests/test_menu.exe
 build/tests/test_menu.exe
+# Part B scenes: ArcSelect / VS Select / Result + continue / pause menu logic (src/app/select.c)
+"$ZIG" cc -std=gnu11 -Wall -Wextra -Werror -O1 -g -fsanitize=undefined -fno-sanitize-recover=all \
+  src/app/select.c src/app/modes_flow.c src/app/scene_core.c src/app/strings.c src/app/bmfont.c src/modes/ladder.c \
+  src/modes/score.c src/modes/save.c src/sim/*.c src/sim/chars/*.c tests/test_select.c -lm -o build/tests/test_select.exe
+build/tests/test_select.exe

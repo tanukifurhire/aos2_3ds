@@ -88,6 +88,10 @@ float text_line_height(font_id f, float scale); /* lineHeight·scale */
  * fit like the text object ctor (FUN_00593430); 0 = no limit. rgba as
  * C2D_Color32 (0xAABBGGRR). */
 void text_draw(font_id f, const char *utf8, float x, float y, int align, uint32_t rgba, float scale, float maxw);
+/* Same as text_draw, every glyph rotated by angle (radians) about (px, py): the win quote
+ * on the result screen's tilted band (FUN_0045cb30). Part B. */
+void text_draw_rot(font_id f, const char *utf8, float x, float y, int align, uint32_t rgba, float scale, float angle,
+                   float px, float py);
 /* PC-style 4 offset shadows (±1,±1, 0x20 alpha) + text: the help line draw. */
 void text_draw_shadowed(font_id f, const char *utf8, float x, float y, int align, uint32_t rgba, float scale, float maxw);
 /* Port-only: greedy word wrap at spaces to maxw pixels into out (adds '\n').

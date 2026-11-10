@@ -120,7 +120,7 @@ int32_t ladder_char_bgm(int32_t c)
 /* ladder finished: stepper else-branch (and Result Exit game over, gameOver = 1) */
 static void run_end(ladder_run *r, int gameOver, aos_save *save, ladder_out *out)
 {
-	out->scene = SCENE_MENU;
+	out->scene = LADDER_SCENE_MENU;
 	out->finished = 1;
 	if (r->mode == LADDER_STORY) {
 		r->rank = 0xb;
@@ -146,7 +146,7 @@ void ladder_step(ladder_run *r, int param, aos_mt *cosmetic, aos_save *save, lad
 		r->index--;
 	}
 	if (param == 1 && r->winner == 1) {
-		out->scene = SCENE_RESULT; /* lost: Result in continue mode, cursor not advanced */
+		out->scene = LADDER_SCENE_RESULT; /* lost: Result in continue mode, cursor not advanced */
 		out->lost = 1;
 		return;
 	}
@@ -182,20 +182,20 @@ void ladder_step(ladder_run *r, int param, aos_mt *cosmetic, aos_save *save, lad
 				g->stage = e->stage;
 			}
 		}
-		out->scene = SCENE_BATTLE;
+		out->scene = LADDER_SCENE_BATTLE;
 		out->newMatch = 1;
 		break;
 	}
 	case LADDER_CONV:
 		out->scriptId = e->a;  /* FUN_004e35e0 */
 		out->backdrop = e->b;  /* FUN_004bfc10 */
-		out->scene = SCENE_CONVERSATION;
+		out->scene = LADDER_SCENE_CONVERSATION;
 		break;
 	case LADDER_RESULT:
-		out->scene = SCENE_RESULT;
+		out->scene = LADDER_SCENE_RESULT;
 		break;
 	case LADDER_ENDING:
-		out->scene = SCENE_ENDROLL;
+		out->scene = LADDER_SCENE_ENDROLL;
 		break;
 	}
 	r->index++;
@@ -224,7 +224,7 @@ void ladder_game_exit(ladder_run *r, int how, const aos_world *w, aos_mt *cosmet
 		ladder_step(r, 3, cosmetic, save, out);
 	} else {
 		memset(out, 0, sizeof *out);
-		out->scene = SCENE_ARCSELECT; /* pause Quit: run abandoned */
+		out->scene = LADDER_SCENE_ARCSELECT; /* pause Quit: run abandoned */
 	}
 }
 

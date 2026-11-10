@@ -1,6 +1,7 @@
 /* Logo + Menu scene logic (modes.md §A.3-A.6). Portable: drawing, stage and
  * textures are in menu_draw.c. Comments give the original state/variable. */
 #include "menu.h"
+#include "modes_scenes.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -90,12 +91,14 @@ void menu_logic_init(void) /* FUN_00642190 */
 		}
 		if (music_current() != MUSIC_MENU)
 			music_request(MUSIC_MENU, true, true);
-	} else if ((prev == SCENE_RESULT || prev == SCENE_ENDROLL) && g_setup.mode == MODE_ARCADE) {
-		/* 0x19a ranking name entry (Part D) — until then back to the main menu */
+	} else if ((prev == SCENE_RESULT || prev == SCENE_ENDROLL || prev == SCENE_BATTLE) && g_setup.mode == MODE_ARCADE) {
+		/* arcade end / game over: 0x19a name entry + ranking (ranking_menu_init, Part D) */
+		int keep_cursor = g_menu.cursor, keep_diff = g_menu.diff;
 		memset(&g_menu, 0, sizeof g_menu);
+		g_menu.cursor = keep_cursor;
+		g_menu.diff = keep_diff;
 		g_menu.state = MS_MAIN;
 		g_menu.a_band = 1;
-		announce_show(0);
 		music_request(MUSIC_MENU, true, true);
 	} else {
 		/* from Logo / select cancel / story end: title, everything zeroed, no BGM */
@@ -103,6 +106,7 @@ void menu_logic_init(void) /* FUN_00642190 */
 		g_menu.state = MS_TITLE;
 		announce_hide();
 	}
+	ranking_menu_init(prev); /* Part D: name entry, unlock popups, ranking page */
 	g_menu.counter = 0;
 	min_flush();
 	scene_fade(5);
@@ -147,8 +151,10 @@ static void main_confirm(void)
 		g_menu.state = MS_TRAINING;
 		announce_show(11);
 		break;
-	case ITEM_MEMORY: /* 500 replay browser / 400 ranking: not ported (no replays; ranking = Part D) */
-	case ITEM_RANKING:
+	case ITEM_RANKING: /* 400 (Part D, ranking.c) */
+		ranking_open();
+		break;
+	case ITEM_MEMORY: /* 500 replay browser: not ported (no replays) */
 		se(3);
 		announce_show_text("Coming soon on 3DS.");
 		break;
@@ -526,6 +532,11 @@ void menu_logic_update(void) /* FUN_00643150 */
 	case MS_CONFIG:
 		config_update();
 		break;
+	case MS_RANKING:
+	case MS_NAME_ENTRY:
+	case MS_UNLOCK:
+		ranking_update(); /* Part D (ranking.c) */
+		break;
 	case MS_LEAVING:
 		if (!scene_fade_busy())
 			menu_logic_exit();
@@ -534,13 +545,14 @@ void menu_logic_update(void) /* FUN_00643150 */
 	/* tail: panel alphas (frozen while leaving), flash, carousel glide */
 	if (m->state != MS_LEAVING) {
 		approach(&m->a_logo, m->state == MS_MAIN);
-		approach(&m->a_band, m->state != MS_TITLE);
+		approach(&m->a_band, m->state != MS_TITLE && m->state != MS_UNLOCK && m->state != MS_RANKING); /* port: ranking rows reach the band */
 		approach(&m->a_diff, m->state == MS_DIFFICULTY);
 		approach(&m->a_match, m->state == MS_MATCH);
 		approach(&m->a_train, m->state == MS_TRAINING);
 		approach(&m->a_manual, m->state == MS_MANUAL);
 		approach(&m->a_cfg, m->state == MS_CONFIG);
 	}
+	ranking_tail();
 	if (m->flash > 0) {
 		m->flash -= 0.025f; /* 0x813edc */
 		if (m->flash < 0)

@@ -10,7 +10,9 @@
 
 #include "../platform/stage.h"
 #include "audio.h"
+#include "conv_scene.h"
 #include "menu.h"
+#include "modes_scenes.h"
 #include "music.h"
 #include "scene.h"
 #include "scene_core.h"
@@ -134,6 +136,11 @@ static void menu_update(void)
 			}
 		}
 	}
+	if (g_menu.state == MS_MAIN && min_pressed_nr(MI_Y)) { /* port debug: story conversation test (conv_scene.c) */
+		audio_se(0, AUDIO_SE_CD_DEFAULT);
+		scene_goto(SCENE_CONV_TEST);
+		return;
+	}
 	menu_logic_update();
 	bg_tick();
 }
@@ -142,6 +149,7 @@ static void menu_exit(void)
 {
 	stage3ds_end(); /* Menu Exit FUN_004bfca0(0x13) */
 	ui_mtex_free_all();
+	ranking_gfx_free();
 }
 
 static float band_y(void)
@@ -223,6 +231,7 @@ static void menu_draw_top(void) /* FUN_00645080 */
 	draw_manual_top();
 	if (g_menu.a_manual > 0)
 		pill(&PILL_YELLOW, 10, g_menu.a_manual, tr_id(0x24e), W);
+	ranking_draw_top(); /* Part D: ranking 400 / name entry 0x19a / unlock popup 0x1a4 */
 	if (g_menu.flash > 0) {
 		ui_blend(2);
 		ui_rect(0, 0, W, H, ui_argb((int)(255 * g_menu.flash), 0xffffff));
@@ -354,6 +363,7 @@ static void menu_draw_bottom(void)
 		text_draw(FONT_SYSTEM, "A: next page    B: back", BW / 2, 140, TEXT_CENTER, c2d_a(GREY, am), 1.0f, 0);
 	}
 	bottom_config(g_menu.a_cfg);
+	ranking_draw_bottom();
 }
 
 static const scene_def menu_scene = {

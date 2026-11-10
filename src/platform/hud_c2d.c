@@ -169,6 +169,15 @@ void hg_image(int t, float x0, float y0, float x1, float y1, float u0, float v0,
 		v0 = v1;
 		v1 = tmp;
 	}
+	/* v running upwards (noise strips): crop with v0 < v1 and flip the quad instead.
+	 * citro2d treats a sub-texture with top < bottom as tex3ds-rotated, so a crop
+	 * with top/bottom swapped would be misread as (un)rotated. */
+	bool vflip = v1 < v0;
+	if (vflip) {
+		float tmp = v0;
+		v0 = v1;
+		v1 = tmp;
+	}
 	Tex3DS_SubTexture sub = *s;
 	float fu0 = u0 / h->ow, fu1 = u1 / h->ow, fv0 = v0 / h->oh, fv1 = v1 / h->oh;
 	sub.left = s->left + (s->right - s->left) * fu0;
@@ -184,8 +193,8 @@ void hg_image(int t, float x0, float y0, float x1, float y1, float u0, float v0,
 	C2D_PlainImageTint(&tint, c2d(argb), 1.0f);
 	float w = x1 - x0, hh = y1 - y0;
 	C2D_DrawParams p = {
-		.pos = {x0 + w * 0.5f, y0 + hh * 0.5f, w, hh},
-		.center = {w * 0.5f, hh * 0.5f},
+		.pos = {x0 + w * 0.5f, y0 + hh * 0.5f, w, vflip ? -hh : hh},
+		.center = {w * 0.5f, vflip ? -hh * 0.5f : hh * 0.5f}, /* negative height: same rect, texture flipped */
 		.depth = DEPTH,
 		.angle = angle,
 	};

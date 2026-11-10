@@ -83,7 +83,15 @@ func main() {
 		if err := packMenuTextures(*assets, *gfx); err != nil {
 			log.Fatal(err)
 		}
+		if err := packEndrollTextures(*assets, *gfx); err != nil { // staff roll (endroll.go)
+			log.Fatal(err)
+		}
 		if err := copyScripts(*assets, *out); err != nil {
+			log.Fatal(err)
+		}
+	}
+	if len(want) == 0 || want["fonts"] || want["select"] { // Part B: select/result textures (seltex.go)
+		if err := packSelectTextures(*assets, *gfx); err != nil {
 			log.Fatal(err)
 		}
 	}

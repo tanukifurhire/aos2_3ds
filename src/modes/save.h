@@ -38,7 +38,7 @@
 
 typedef struct {
 	int32_t score;               /* +0x00 */
-	int32_t name[AOS_RANK_NAME]; /* +0x04 one int per letter; new entries '-' (0x2d) */
+	int32_t name[AOS_RANK_NAME]; /* +0x04 one letter index 0..45 per slot (FUN_00659480); new entries 45 = blank */
 	int32_t character;           /* +0x20 engine id */
 } aos_rank_entry;
 

@@ -40,8 +40,18 @@ static inline void spritebank_clamp_sub(Tex3DS_SubTexture *s, const Tex3DS_SubTe
 	/* half a texel; sizes are powers of two 8..1024, so no division (this runs per HUD strip) */
 	static const float half[8] = {1 / 16.0f, 1 / 32.0f, 1 / 64.0f, 1 / 128.0f, 1 / 256.0f, 1 / 512.0f, 1 / 1024.0f, 1 / 2048.0f};
 	float hu = half[(__builtin_ctz(tex->width) - 3) & 7], hv = half[(__builtin_ctz(tex->height) - 3) & 7];
-	float l = full->left + hu, r = full->right - hu;
-	float t = full->top - hv, b = full->bottom + hv; /* t3x V runs bottom-up: top > bottom */
+	/* tex3ds may store an image rotated (top < bottom; left/right then run along
+	 * the texture's v axis and top/bottom along u), so take each field pair's
+	 * range in either order and swap the half-texel axes for rotated frames. */
+	if (full->top < full->bottom) {
+		float k = hu;
+		hu = hv;
+		hv = k;
+	}
+	float l = (full->left < full->right ? full->left : full->right) + hu;
+	float r = (full->left < full->right ? full->right : full->left) - hu;
+	float b = (full->top < full->bottom ? full->top : full->bottom) + hv;
+	float t = (full->top < full->bottom ? full->bottom : full->top) - hv;
 	if (r < l)
 		l = r = (full->left + full->right) * 0.5f;
 	if (t < b)

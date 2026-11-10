@@ -13,6 +13,7 @@
 #include "../sim/rng.h"
 #include "../sim/sim.h"
 #include "audio.h"
+#include "modes_flow.h"
 
 /* DAT_0086c000: BGM volume level -> scale (identical to the SE table 0x86c890). */
 static const float bgm_scale[11] = {0.0f, 0.3f, 0.5f, 0.6f, 0.65f, 0.7f, 0.75f, 0.85f, 0.9f, 0.95f, 1.0f};
@@ -27,7 +28,7 @@ static int level = 5; /* DAT_00881ea8, ConfigData Init default 5 */
 
 static int list[64], nlist; /* DAT_009b8dd4 */
 static int sel;             /* DAT_009b6adc */
-static aos_mt cosmetic;     /* stands in for the cosmetic MT 0x875b68 */
+/* cosmetic MT 0x875b68: the app-wide stream modes_cosmetic() (modes_flow.c) */
 
 /* script/en/bgm.txt, indexed by text id - 0x208. Text id of a BGM id =
  * 0x208 + (id <= 0x19 ? id - 10 : id - 14) (stage-select draw FUN_007aabb0,
@@ -86,7 +87,6 @@ static void push_range_if_owned(int lo, int hi)
 
 void music_init(void)
 {
-	aos_mt_seed(&cosmetic, (uint32_t)svcGetSystemTick()); /* random_device stand-in */
 	/* Select Init FUN_0079acc0 (0x79b713..): "????" first, then the base tracks
 	 * whose unlock flag 0x87b753+id is set — note 0x14 before 0x13. The port has
 	 * no save data: all base tracks count as unlocked. */
@@ -105,6 +105,7 @@ void music_init(void)
 int music_list_count(void) { return nlist; }
 int music_list_id(int index) { return index >= 0 && index < nlist ? list[index] : 0; }
 int music_sel(void) { return sel; }
+void music_sel_set(int index) { sel = index >= 0 && index < nlist ? index : 0; }
 
 void music_sel_step(int dir)
 {
@@ -128,7 +129,7 @@ int music_resolve(void)
 	if (nlist < 2)
 		return 0;
 	/* FUN_007aaed0: rand_int(0,100) % (count - 1) + 1, unsigned (skips "????") */
-	uint32_t r = (uint32_t)aos_rand_i(&cosmetic, 0, 100);
+	uint32_t r = (uint32_t)aos_rand_i(modes_cosmetic(), 0, 100);
 	return list[r % (uint32_t)(nlist - 1) + 1];
 }
 

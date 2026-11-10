@@ -162,7 +162,7 @@ static void run(int mode, int c, uint32_t seed, int lose_at, int retry_at, int v
 	int expect_score = 0;
 	while (!o.finished && guard++ < 200) {
 		switch (o.scene) {
-		case SCENE_BATTLE: {
+		case LADDER_SCENE_BATTLE: {
 			aos_match_params m;
 			ladder_match_params(&R, 0, &m);
 			CHECK(m.ids[0] == c && m.inputSrc[1] == 10 && m.roundsToWin == 1 && m.handicap[0] == 2 && m.handicap[1] == 2 &&
@@ -188,7 +188,7 @@ static void run(int mode, int c, uint32_t seed, int lose_at, int retry_at, int v
 				retried = 1;
 				int opp = m.ids[1], st = R.setup.stage;
 				ladder_game_exit(&R, LADDER_EXIT_RETRY, NULL, &rng, &S, &o, NULL);
-				CHECK(o.scene == SCENE_BATTLE && R.setup.p2 == opp && R.setup.stage == st && R.continues == conts + 1 &&
+				CHECK(o.scene == LADDER_SCENE_BATTLE && R.setup.p2 == opp && R.setup.stage == st && R.continues == conts + 1 &&
 				          R.score == 0,
 				      "retry refights the same opponent");
 				conts++;
@@ -200,11 +200,11 @@ static void run(int mode, int c, uint32_t seed, int lose_at, int retry_at, int v
 				int opp = m.ids[1];
 				fake_match(1, 5000);
 				ladder_game_exit(&R, LADDER_EXIT_DECIDED, &W, &rng, &S, &o, NULL);
-				CHECK(o.scene == SCENE_RESULT && o.lost, "loss -> result in continue mode");
+				CHECK(o.scene == LADDER_SCENE_RESULT && o.lost, "loss -> result in continue mode");
 				ladder_result_exit(&R, 0, 1, &rng, &S, &o);
 				conts++;
 				expect_score = 0;
-				CHECK(o.scene == SCENE_BATTLE && R.setup.p2 == opp && R.continues == conts && R.score == 0,
+				CHECK(o.scene == LADDER_SCENE_BATTLE && R.setup.p2 == opp && R.continues == conts && R.score == 0,
 				      "continue refights the same opponent");
 				continue;
 			}
@@ -219,21 +219,21 @@ static void run(int mode, int c, uint32_t seed, int lose_at, int retry_at, int v
 			ladder_game_exit(&R, LADDER_EXIT_DECIDED, &W, &rng, &S, &o, &res);
 			CHECK(res.winner == 0 && res.score == 2000 + fights, "result sums");
 			CHECK(R.score == expect_score, "run score %d want %d", R.score, expect_score);
-			CHECK(o.scene == SCENE_RESULT && !o.lost, "won -> result entry");
+			CHECK(o.scene == LADDER_SCENE_RESULT && !o.lost, "won -> result entry");
 			fights++;
 			break;
 		}
-		case SCENE_RESULT: {
+		case LADDER_SCENE_RESULT: {
 			int w0 = S.wins;
 			ladder_result_exit(&R, 0, 0, &rng, &S, &o);
 			CHECK(S.wins == w0 + 1, "wins++ on a won result");
 			break;
 		}
-		case SCENE_CONVERSATION:
+		case LADDER_SCENE_CONVERSATION:
 			CHECK(mode == LADDER_STORY && o.scriptId / 10 == c - 2, "conversation %d", o.scriptId);
 			ladder_step(&R, 0, &rng, &S, &o);
 			break;
-		case SCENE_ENDROLL:
+		case LADDER_SCENE_ENDROLL:
 			ended = 1;
 			ladder_endroll_exit(&R, &rng, &S, &o);
 			break;
@@ -242,7 +242,7 @@ static void run(int mode, int c, uint32_t seed, int lose_at, int retry_at, int v
 			guard = 1000;
 		}
 	}
-	CHECK(o.finished && o.scene == SCENE_MENU && ended, "%d/%d run finished", mode, c);
+	CHECK(o.finished && o.scene == LADDER_SCENE_MENU && ended, "%d/%d run finished", mode, c);
 	CHECK(fights == 7, "%d/%d fights %d", mode, c, fights);
 	int nocont = lose_at < 0 && retry_at < 0;
 	if (mode == LADDER_ARCADE) {
@@ -277,7 +277,7 @@ static void test_runs(void)
 	aos_mt rng;
 	aos_mt_seed(&rng, 1);
 	ladder_start(&R, LADDER_STORY, 17, 1, &rng, NULL, &o);
-	CHECK(o.finished && o.scene == SCENE_MENU, "story Sumika: empty");
+	CHECK(o.finished && o.scene == LADDER_SCENE_MENU, "story Sumika: empty");
 	/* the opponent pick is FUN_00459f80(0, n*10) % n on the given stream */
 	aos_mt a, b;
 	aos_mt_seed(&a, 42);
@@ -288,7 +288,7 @@ static void test_runs(void)
 	CHECK(R.setup.p2 == pool[v % 10] && R.npool == 9, "first pick = pool[rand(0,100) %% 10] (%d)", R.setup.p2);
 	/* quit -> ArcSelect */
 	ladder_game_exit(&R, LADDER_EXIT_QUIT, NULL, &a, NULL, &o, NULL);
-	CHECK(o.scene == SCENE_ARCSELECT, "quit");
+	CHECK(o.scene == LADDER_SCENE_ARCSELECT, "quit");
 	/* game over: ranking insert + arcade unlock check */
 	aos_save S;
 	aos_save_defaults(&S);
@@ -298,9 +298,9 @@ static void test_runs(void)
 	ladder_result_exit(&R, 0, 0, &a, &S, &o);
 	fake_match(1, 0);
 	ladder_game_exit(&R, LADDER_EXIT_DECIDED, &W, &a, &S, &o, NULL);
-	CHECK(o.scene == SCENE_RESULT && o.lost, "lost");
+	CHECK(o.scene == LADDER_SCENE_RESULT && o.lost, "lost");
 	ladder_result_exit(&R, 1, 0, &a, &S, &o);
-	CHECK(o.finished && o.scene == SCENE_MENU && R.rank == 0 && S.rank[0][0].score == 20000 &&
+	CHECK(o.finished && o.scene == LADDER_SCENE_MENU && R.rank == 0 && S.rank[0][0].score == 20000 &&
 	          S.rank[0][0].character == 10 && S.rank[0][0].name[0] == 0x2d && S.rank[0][1].score == 10000,
 	      "game over ranks the run (rank %d)", R.rank);
 	CHECK(S.arcadeClears[0] == 0 && S.wins == 1, "no clear on game over");

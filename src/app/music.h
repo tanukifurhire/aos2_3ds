@@ -16,7 +16,7 @@ enum {
 	MUSIC_RANDOM = 10,   /* list entry "????" (BGM_RAMDOM) */
 };
 
-void music_init(void);   /* builds the BGM list; seeds the cosmetic RNG */
+void music_init(void);   /* builds the BGM list (cosmetic RNG = modes_cosmetic(), seeded by modes_flow_init) */
 void music_update(void); /* FUN_004beeb0: once per frame */
 
 /* FUN_004bee00(id, restart, loop): queue id; fades the current track out first. */
@@ -34,6 +34,7 @@ int music_list_count(void);
 int music_list_id(int index);
 int music_sel(void);
 void music_sel_step(int dir); /* up/down with wrap, plays cursor SE 2 */
+void music_sel_set(int index);  /* Select Init from the menu: cursor = index of "????" (Part B) */
 const char *music_name(int id); /* script/en/bgm.txt name, "" if none */
 /* Select Exit (FUN_0079bfc0): the selection's BGM id, "????" resolved with the
  * cosmetic RNG (FUN_007aaed0) — never the game RNG. */

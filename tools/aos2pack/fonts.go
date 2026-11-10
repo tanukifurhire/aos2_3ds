@@ -229,7 +229,12 @@ func nextPow2(v int) int {
 }
 
 func packFont(assets, romfs, gfx string, spec fontSpec, cps map[rune]bool) (int, int, error) {
-	dir := filepath.Join(assets, "font", "en")
+	return packFontAs(filepath.Join(assets, "font", "en"), spec.family, romfs, gfx, spec, cps, "la8")
+}
+
+// packFontAs packs <dir>/<spec.family>_1080.fnt as romfs/font/<out>.fnt + gfx/font_<out>/page0
+// (tex3ds format texFmt). Used for the en families and the per-language dialogue fonts.
+func packFontAs(dir, out, romfs, gfx string, spec fontSpec, cps map[rune]bool, texFmt string) (int, int, error) {
 	raw, err := os.ReadFile(filepath.Join(dir, spec.family+"_1080.fnt"))
 	if err != nil {
 		return 0, 0, err
@@ -314,17 +319,17 @@ func packFont(assets, romfs, gfx string, spec fontSpec, cps map[rune]bool) (int,
 			}
 		}
 	}
-	folder := "font_" + spec.family
+	folder := "font_" + out
 	if err := savePNG(filepath.Join(gfx, folder, "page0.png"), page); err != nil {
 		return 0, 0, err
 	}
-	if err := os.WriteFile(filepath.Join(gfx, folder, "page0.t3s"), []byte("-f la8 -z auto\npage0.png\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(gfx, folder, "page0.t3s"), []byte("-f "+texFmt+" -z auto\npage0.png\n"), 0o644); err != nil {
 		return 0, 0, err
 	}
 	if err := os.MkdirAll(filepath.Join(romfs, "font"), 0o755); err != nil {
 		return 0, 0, err
 	}
-	if err := os.WriteFile(filepath.Join(romfs, "font", spec.family+".fnt"), nf.write(folder+"_0.t3x"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(romfs, "font", out+".fnt"), nf.write(folder+"_0.t3x"), 0o644); err != nil {
 		return 0, 0, err
 	}
 	return len(keep), pw * ph, nil
@@ -339,7 +344,7 @@ func packFonts(assets, romfs, gfx string) error {
 		}
 		fmt.Printf("font %-14s %3d glyphs  page %d px (LA8 %d KB)\n", s.family, n, px, px*2/1024)
 	}
-	return nil
+	return packDialogueLangs(assets, romfs, gfx) // fonts_dialogue.go: story conversations in jp/chs/cht/ko/ru
 }
 
 // ---------------------------------------------------------------- menu textures

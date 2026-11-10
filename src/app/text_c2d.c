@@ -94,6 +94,7 @@ typedef struct {
 	ui_tex *page;
 	u32 col;
 	bool snap;
+	float angle, px, py; /* text_draw_rot: rotation about (px, py) */
 } emit_ctx;
 
 static void emit(void *vctx, const bm_glyph *g, float x, float y, float w, float h)
@@ -113,10 +114,18 @@ static void emit(void *vctx, const bm_glyph *g, float x, float y, float w, float
 	C2D_ImageTint tint;
 	C2D_PlainImageTint(&tint, c->col, 1.0f);
 	C2D_DrawParams p = {.pos = {x, y, w, h}, .center = {0, 0}, .depth = UI_DEPTH, .angle = 0};
+	if (c->angle != 0) {
+		p.pos.x = c->px;
+		p.pos.y = c->py;
+		p.center.x = c->px - x;
+		p.center.y = c->py - y;
+		p.angle = c->angle;
+	}
 	C2D_DrawImage(img, &p, &tint);
 }
 
-static void draw(font_id f, const char *s, float x, float y, int align, uint32_t rgba, float scale, float maxw)
+static void draw_ex(font_id f, const char *s, float x, float y, int align, uint32_t rgba, float scale, float maxw,
+                    float angle, float px, float py)
 {
 	if (!s || !*s || !(rgba >> 24) || !font_get(f))
 		return;
@@ -128,15 +137,26 @@ static void draw(font_id f, const char *s, float x, float y, int align, uint32_t
 			sx = scale * maxw / w;
 	}
 	float top = y - (float)(int)((float)fn->line_height * sy / 2.0f + 0.5f); /* FUN_005931d0: y = centre */
-	emit_ctx c = {&fonts[f].page, rgba, sx == 1.0f && sy == 1.0f};
+	emit_ctx c = {&fonts[f].page, rgba, sx == 1.0f && sy == 1.0f && angle == 0, angle, px, py};
 	C2D_SetTintMode(C2D_TintMult);
 	bm_layout(fn, s, x, top, align, sx, sy, emit, &c);
 	C2D_SetTintMode(C2D_TintSolid);
 }
 
+static void draw(font_id f, const char *s, float x, float y, int align, uint32_t rgba, float scale, float maxw)
+{
+	draw_ex(f, s, x, y, align, rgba, scale, maxw, 0, 0, 0);
+}
+
 void text_draw(font_id f, const char *s, float x, float y, int align, uint32_t rgba, float scale, float maxw)
 {
 	draw(f, s, x, y, align, rgba, scale, maxw);
+}
+
+void text_draw_rot(font_id f, const char *s, float x, float y, int align, uint32_t rgba, float scale, float angle,
+                   float px, float py)
+{
+	draw_ex(f, s, x, y, align, rgba, scale, 0, angle, px, py);
 }
 
 void text_draw_shadowed(font_id f, const char *s, float x, float y, int align, uint32_t rgba, float scale, float maxw)

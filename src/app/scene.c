@@ -10,6 +10,7 @@
 #include "../platform/panel.h"
 #include "../platform/stage.h"
 #include "audio.h"
+#include "modes_flow.h"
 #include "music.h"
 #include "prof.h"
 #include "scene.h"
@@ -219,6 +220,8 @@ void scene_main(int first)
 		if (scene_post_frame_hook)
 			scene_post_frame_hook();
 		scene_fade_update(); /* FUN_00561c70 */
+		if (scene_current() != SCENE_BATTLE)
+			modes_save_poll(); /* progress.sav when dirty, never during a match frame (modes_flow.h) */
 		if (!scene_core_end_frame())
 			break;
 	}
