@@ -43,6 +43,11 @@ static inline u32 ui_c2d(unsigned argb)
 }
 
 /* text with a PC ARGB colour (text.h takes C2D colours) */
-#define UI_DEPTH 0.5f
+/* citro2d depth of all menu/UI draws. Overlays drawn over the match (pause menu) raise it above
+ * the HUD's 0.9 with ui_set_depth() and restore UI_DEPTH_DEFAULT afterwards. */
+#define UI_DEPTH_DEFAULT 0.5f
+extern float ui_depth;
+#define UI_DEPTH ui_depth
+static inline void ui_set_depth(float d) { ui_depth = d; }
 
 #endif

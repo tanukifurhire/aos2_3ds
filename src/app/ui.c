@@ -1,5 +1,7 @@
 #include "ui.h"
 
+float ui_depth = UI_DEPTH_DEFAULT;
+
 #include <stdio.h>
 #include <string.h>
 

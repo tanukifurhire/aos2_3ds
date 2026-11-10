@@ -184,13 +184,15 @@ static bool flow_auto_load(void)
 }
 static bool flow_auto_decide(void)
 {
-	if (flow_auto_frames <= 0 || !modes_flow_active() || (int)scene_frame() < flow_auto_frames)
+	int script = prof_script_decide(); /* sdmc:/aos2_keys.txt "decide [1|2]" (any mode) */
+	if (!script && (flow_auto_frames <= 0 || !modes_flow_active() || (int)scene_frame() < flow_auto_frames))
 		return false;
 	memset(&flow_fake, 0, sizeof flow_fake);
-	flow_fake.p[0].hp = 9000;
+	flow_fake.p[script == 2 ? 1 : 0].hp = 9000; /* the winner (aos_hp_winner) */
 	flow_fake.nRoundRecs = 1;
-	flow_fake.roundRec[0][0] = (aos_round_rec){10000, 30, 9000, 1000 * modes_flow_run()->index, 5, 0};
-	flow_fake.roundRec[0][0].score = 20000 + 1000 * modes_flow_run()->index;
+	int idx = modes_flow_active() ? modes_flow_run()->index : 0;
+	flow_fake.roundRec[0][0] = (aos_round_rec){10000, 30, 9000, 1000 * idx, 5, 0};
+	flow_fake.roundRec[0][0].score = 20000 + 1000 * idx;
 	for (int i = 0; i < 2; i++) {
 		flow_fake.p[i].id = world.p[i].id;
 		flow_fake.p[i].color = world.p[i].color;
@@ -205,7 +207,7 @@ static bool flow_auto_decide(void)
 
 static void battle_update(void)
 {
-	u32 kh = hidKeysHeld();
+	u32 kh = hidKeysHeld() | prof_script_keys();
 	if (bench_done()) {
 		scene_goto(SCENE_BATTLE);
 		return;
@@ -295,9 +297,18 @@ static void battle_exit(void) /* Game Exit FUN_005f5780 (app side) */
 	panel_clear_lines();
 }
 
+/* The match panel is the only thing on the bottom screen (outside pause): skip it while unchanged. */
+static bool battle_bottom_same(void)
+{
+	static bool paused_last;
+	bool same = !g_pause.on && !paused_last && panel_same(&world);
+	paused_last = g_pause.on;
+	return same;
+}
+
 static const scene_def battle_scene = {
 	.name = "battle", .init = battle_init, .update = battle_update, .draw_top = battle_draw_top,
-	.draw_bottom = battle_draw_bottom, .exit = battle_exit,
+	.draw_bottom = battle_draw_bottom, .exit = battle_exit, .bottom_same = battle_bottom_same,
 };
 
 /* ================================================================ lobby picks (local wireless, scene 7) */

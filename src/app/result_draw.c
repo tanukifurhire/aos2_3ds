@@ -307,35 +307,44 @@ static void res_draw_bottom(void)
 	text_draw(FONT_MENU, nk ? tr(nk) : "", 8, 12, TEXT_LEFT, ui_c2d(WHITE), 1.0f, 200);
 	static char q[700];
 	char key[40];
+	int lines = 0;
 	result_quote_key(r->chara[w], r->quote, key, sizeof key);
 	if (key[0]) {
-		text_wrap(FONT_SYSTEM, tr(key), 1.0f, BW - 16, q, sizeof q);
+		lines = text_wrap(FONT_SYSTEM, tr(key), 1.0f, BW - 16, q, sizeof q);
 		text_draw(FONT_SYSTEM, q, 8, 34, TEXT_LEFT, ui_c2d(0xffe0e0e0), 1.0f, 0);
 	}
 	if (r->sub != RES_WON && r->sub != RES_LEAVING)
 		return;
-	/* score table (the same numbers as the top screen) */
+	/* score table (the same numbers as the top screen): res_tag label on a white fade band like the
+	 * top screen's rows (the black-outlined labels are illegible on the navy panel), the value
+	 * right-aligned in its own column so it never runs into the label */
 	const bgfx *tag = bg_get(BG_RESTAG);
 	int vals[4] = {r->r.bonus, r->r.hp, r->r.damage, r->r.score};
+	float y0 = 34 + 16 * (float)lines + 14, dy = 24;
+	if (y0 < 102)
+		y0 = 102;
+	if (y0 + 3 * dy > 178)
+		dy = (178 - y0) / 3;
 	for (int k = 0; k < 4; k++) {
 		float a = r->row[k];
 		if (a <= 0)
 			continue;
-		float y = 104 + 22 * (float)k;
-		bgfx_draw_c(tag, 0, (float)(k * 0x40), 0x1ff, (float)(k * 0x40 + 0x3f), 60, y, 56, 7, 0, a8(a) | 0xffffff, 1, false);
+		float y = y0 + dy * (float)k;
+		ui_rect_grad(0, y - 9, 150, y + 9, a8(a * 0.88f) | 0xffffff, 0x00ffffff, 0x00ffffff, a8(a * 0.88f) | 0xffffff);
+		bgfx_draw_c(tag, 0, (float)(k * 0x40), 0x1ff, (float)(k * 0x40 + 0x3f), 62, y, 56, 7, 0, a8(a) | 0xffffff, 1, false);
 		char b[24];
 		snprintf(b, sizeof b, "%d pt", (int)vals[k]);
-		text_draw(FONT_MENU, b, 246, y, TEXT_RIGHT, ui_c2d(a8(a) | 0xffffff), 0.9f, 0);
+		text_draw(FONT_MENU, b, 246, y, TEXT_RIGHT, ui_c2d(a8(a) | 0xffffff), 0.8f, 118);
 	}
 	if (r->row[3] > 0) {
 		char b[64];
 		snprintf(b, sizeof b, "Fight Time %d:%02d   Max Hit %d", (int)(r->r.seconds / 60), (int)(r->r.seconds % 60), (int)r->r.hits);
-		text_draw(FONT_SYSTEM, b, BW / 2, 192, TEXT_CENTER, ui_c2d(a8(r->row[3]) | 0xc0c0c0), 1.0f, BW - 10);
+		text_draw(FONT_SYSTEM, b, BW / 2, 196, TEXT_CENTER, ui_c2d(a8(r->row[3]) | 0xc0c0c0), 1.0f, BW - 10);
 	}
 	if (r->rank_a > 0) {
 		int k = r->rank;
 		float sx0 = (float)((k % 2) * 0x200 + 4), sy0 = (float)((k / 2) * 0x80 + 0x204);
-		bgfx_draw_c(bg_get(BG_RESSYSTEM), sx0, sy0, sx0 + 0x1f7, sy0 + 0x77, 286, 136, 32, 8, -0.15f,
+		bgfx_draw_c(bg_get(BG_RESSYSTEM), sx0, sy0, sx0 + 0x1f7, sy0 + 0x77, 286, y0 + 1.5f * dy, 32, 8, -0.15f,
 		            a8(r->rank_a) | 0xffffff, 1, false);
 	}
 }

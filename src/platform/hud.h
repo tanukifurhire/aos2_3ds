@@ -39,6 +39,8 @@ void hud_c2d_load(const aos_world *w);
 void hud_c2d_unload(void);
 void hud_c2d_draw(const aos_world *w, int W, int H, float camX, float camY, float zoomDiv);
 void hud_c2d_panel(const aos_world *w, int W, int H);
+/* Hash of what hud_c2d_panel would draw (no GPU work): same hash = same pixels. */
+uint32_t hud_c2d_panel_hash(const aos_world *w, int W, int H);
 #endif
 
 #endif

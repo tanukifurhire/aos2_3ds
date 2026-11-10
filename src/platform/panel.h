@@ -24,5 +24,8 @@ void panel_line(int i, u32 color, const char *fmt, ...) __attribute__((format(pr
 void panel_clear_lines(void);
 /* Draw the panel; call inside C3D_FrameBegin/End. */
 void panel_draw(const aos_world *w);
+/* True when panel_draw would draw exactly what the screen shows from its last call (same lines, same counter
+ * primitives): the frame may skip the bottom screen (scene.c bottom_same). */
+bool panel_same(const aos_world *w);
 
 #endif

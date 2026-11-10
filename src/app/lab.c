@@ -238,7 +238,17 @@ int lab_run(C3D_RenderTarget *top, const char *aerr)
 			C2D_SpriteSetPos(&spr, p.x, p.y);
 			float s = SPRITE_SCALE * (float)fr->ow / (float)fr->w;
 			C2D_SpriteSetScale(&spr, p.face_left ? -s : s, s);
+			if (fr->premul) { /* atlas stored premultiplied (aos2pack -pma, spritebank.h) */
+				C2D_Flush();
+				C3D_AlphaBlend(GPU_BLEND_ADD, GPU_BLEND_ADD, GPU_ONE, GPU_ONE_MINUS_SRC_ALPHA, GPU_ONE,
+				               GPU_ONE_MINUS_SRC_ALPHA);
+			}
 			C2D_DrawSprite(&spr);
+			if (fr->premul) {
+				C2D_Flush();
+				C3D_AlphaBlend(GPU_BLEND_ADD, GPU_BLEND_ADD, GPU_SRC_ALPHA, GPU_ONE_MINUS_SRC_ALPHA, GPU_SRC_ALPHA,
+				               GPU_ONE_MINUS_SRC_ALPHA);
+			}
 		}
 
 		if (shielding)

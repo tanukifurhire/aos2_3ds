@@ -811,6 +811,22 @@ A = local vs CPU, Y/B wireless, X lab) has to become a scene machine like `FUN_0
     The game stays frozen during the Retry/Quit fade (PC: unpauses with input locked).
   - Replay saving (ANNOUNCE 0x38), Steam stats and DLC ownership checks skipped (all art present = owned).
 
+- **Polish pass (2026-11-10)**:
+  - Select backdrop: `sl_bgp` is loaded from folder 3 (`bgMdlAdd/sl_bgp.png`, 1024², picture at
+    (0x70,0xd4)..(0x390,0x32c)); seltex.go had cropped that rect out of the 800×600 `bgMdl` copy → black right
+    and bottom strips and the wrong part of the gradient.
+  - 3D stage behind 2D: citro2d writes depth, so every Z-tested stage mesh drawn after the sl_bgp sprite failed
+    the depth test (stage 4's stripe ring and the dark `sl_shpereb` sphere vanished → the additive spheres showed
+    as a flat white disc over the backdrop; the chosen stage of the VS phase was invisible). `stage3ds_draw`
+    now resets the depth buffer to the cleared value before the stage (the PC's sprites never write Z).
+  - VS top: PLAYER/CPU labels (FUN_007a9c90, H/2−235s) moved into the top letterbox beside the title (dark
+    tints): at 400×240 the PC position lies on the edge wheels.
+  - Result bottom: labels on a white fade band (like the top rows), values right-aligned in their own column
+    (menu font 0.8, squeezed to 118 px), rows shifted below a long quote, rank emblem centred on the table.
+  - Pause overlay drawn at citro2d depth 0.95 (`ui_set_depth`): the HUD writes 0.9, so the dim/bands/texts
+    were cut out wherever HUD or effects had been drawn.
+  - Not bugs: ranking page "Q.Rapport2" lists "Celestine?Tetra" — the exe string literally contains '?'.
+
 ## Open questions / UNVERIFIED
 - Handicap labels 0x1d8..0x1dd (the HP effect is settled, §D.3)
   (registered outside FUN_00633e50 — literal strings?). sel_system.png carries "50% 75% 100% 150% 200% 300%"
@@ -1462,6 +1478,12 @@ Textures: convert the used 512×1024 left half of `resMdl/ed_staff1..4.png` to A
   decides every fight after `frames` frames as a P1 win with a fake round record (skip = 1 also unregisters
   Result/Conversation to use the pass-through). Emulator evidence (Azahar Old 3DS mode, Sora and Suguri arcade
   runs → staff roll → unlock popup → name entry → ranking): `build/preview/modes_D_*.png`.
+- Profile builds only: `sdmc:/aos2_keys.txt` = scripted input (prof.c): `wait N`, `scene ID [max]`,
+  `key A+B [hold] [gap]`, `hold K N`, `touch X Y [h]`, `shot NAME` (both screens → `sdmc:/cap/NAME_{top,bot}.raw`,
+  `tools/capconv.py`), `decide [1|2]` (end the match: fake P1/P2 win, any mode), `skipif ID N`, `quit`; every
+  command is logged with its frame to `sdmc:/cap/script_log.txt`. Keys are injected into the scene input and
+  the Battle input each frame, so runs are repeatable (window key presses could be dropped). Combine with
+  `aos2_flow.txt` for arcade/story auto-play.
 
 ### D.7.2 Save integration
 - Two files: `sdmc:/3ds/aos2_3ds/config.ini` (Part A, `config_save`, written when the config menu closes) and

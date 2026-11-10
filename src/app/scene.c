@@ -51,7 +51,7 @@ void scene_setup(C3D_RenderTarget *t, PrintConsole *c)
 
 static uint16_t read_buttons(void)
 {
-	u32 kh = hidKeysHeld();
+	u32 kh = hidKeysHeld() | prof_script_keys();
 	circlePosition cp;
 	hidCircleRead(&cp);
 	uint16_t b = 0;
@@ -72,6 +72,12 @@ static uint16_t read_buttons(void)
 		hidTouchRead(&tp);
 		g_min.touch_x = tp.px;
 		g_min.touch_y = tp.py;
+		b |= MB_TOUCH;
+	}
+	int sx, sy;
+	if (prof_script_touch(&sx, &sy)) {
+		g_min.touch_x = sx;
+		g_min.touch_y = sy;
 		b |= MB_TOUCH;
 	}
 	return b;
@@ -165,6 +171,7 @@ void scene_main(int first)
 	while (aptMainLoop()) {
 		prof_frame_start();
 		hidScanInput();
+		prof_script_step(); /* profile builds: sdmc:/aos2_keys.txt */
 		minput_feed(&g_min, read_buttons());
 		const scene_def *d = scene_core_begin_frame();
 		if (d && d->run) {
@@ -200,7 +207,12 @@ void scene_main(int first)
 		C2D_SceneBegin(top);
 		fade_overlay(400);
 		C3D_RenderTarget *bot = panel_target();
-		if (bot) {
+		/* skip an unchanged bottom screen: only with no fade / announce band drawn this frame or the last one */
+		static bool bot_overlay_last;
+		bool bot_overlay = scene_fade_alpha() > 0 || announce_alpha() > 0;
+		bool bot_skip = bot && d && d->bottom_same && !bot_overlay && !bot_overlay_last && d->bottom_same();
+		bot_overlay_last = bot_overlay;
+		if (bot && !bot_skip) {
 			C2D_TargetClear(bot, clear_col(d ? d->clear_bottom : 0));
 			C2D_SceneBegin(bot);
 			ui_blend_reset();
@@ -219,6 +231,7 @@ void scene_main(int first)
 		PROF_END(PROF_FRAMEEND);
 		if (scene_post_frame_hook)
 			scene_post_frame_hook();
+		prof_script_frame_end();
 		scene_fade_update(); /* FUN_00561c70 */
 		if (scene_current() != SCENE_BATTLE)
 			modes_save_poll(); /* progress.sav when dirty, never during a match frame (modes_flow.h) */

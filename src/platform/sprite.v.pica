@@ -1,0 +1,34 @@
+; 2D batch vertex shader (sprbatch.c): citro2d's 2D transform (projMtx * (x, y, z, 1), the same
+; Mtx_OrthoTilt matrices, so the same pixels and depth) with a compact vertex:
+;   v0 = screen x, y (float)   v1 = texcoord u, v (float)   v2 = RGBA bytes
+; z comes from a uniform (sprites 0.5, arena ring 0, HUD 0.9: the depths the citro2d draws used).
+
+.fvec projMtx[4]
+.fvec depth      ; x = z
+
+.constf consts(0.0, 1.0, 0.003921569, 0.5)
+.alias one    consts.yyyy
+.alias inv255 consts.zzzz
+
+.out outpos position
+.out outtc0 texcoord0
+.out outclr color
+
+.alias inpos v0
+.alias intc  v1
+.alias inclr v2
+
+.proc main
+	mov r0.xy, inpos.xy
+	mov r0.z, depth.x
+	mov r0.w, one
+
+	dp4 outpos.x, projMtx[0], r0
+	dp4 outpos.y, projMtx[1], r0
+	dp4 outpos.z, projMtx[2], r0
+	dp4 outpos.w, projMtx[3], r0
+
+	mov outtc0, intc
+	mul outclr, inv255, inclr
+	end
+.end

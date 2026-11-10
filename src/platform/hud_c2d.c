@@ -1,11 +1,11 @@
-/* 3DS backend of the HUD primitives (hud_gfx.h) on citro2d, plus the HUD's
- * texture set. Textures come from the atlas sprite bank (tools/aos2pack,
- * scaled 0.5); texel coordinates of the PC textures are mapped onto the atlas
- * sub-rectangles. citro2d cannot texture arbitrary quads/triangles, so:
- *  - hg_quad (HP bar parallelograms, top/bottom edges horizontal) is drawn as
- *    one textured strip per screen row, which reproduces the affine mapping;
- *  - hg_tri_tex (hyper arcs) uses vertex colours from the arc gradient
- *    textures (hud_grad.h; they are constant along u). */
+/* 3DS backend of the HUD primitives (hud_gfx.h) on the 2D batcher (sprbatch.h), plus the HUD's texture
+ * set. Textures come from the atlas sprite bank (tools/aos2pack); texel coordinates of the PC textures are
+ * mapped onto the atlas sub-rectangles.
+ *  - hg_quad (HP bar parallelograms) is one textured quad split like the PC's triangle fan TL-TR-BR,
+ *    TL-BR-BL (affine UVs). On citro2d, which cannot texture arbitrary quads, it was one strip per row.
+ *  - hg_tri_tex (hyper arcs) uses vertex colours from the arc gradient textures (hud_grad.h; they are
+ *    constant along u).
+ * Blend 1 and 2 share one GPU state (premultiplied colours), so the HUD costs a few draw calls. */
 #include <3ds.h>
 #include <citro2d.h>
 #include <math.h>
@@ -16,6 +16,7 @@
 #include "hud_gfx.h"
 #include "hud_grad.h"
 #include "render.h"
+#include "sprbatch.h"
 #include "spritebank.h"
 
 #define DEPTH 0.9f
@@ -24,6 +25,7 @@ typedef struct {
 	C2D_Image img;
 	float ow, oh; /* original PC texture size */
 	bool ok;
+	bool premul; /* atlas RGB premultiplied by alpha (aos2pack -pma) */
 } hud_tex;
 
 static hud_tex tex[HT_COUNT];
@@ -41,6 +43,7 @@ static bool from_frame(hud_tex *t, const aos_frame *f)
 	t->ow = f->ow;
 	t->oh = f->oh;
 	t->ok = true;
+	t->premul = f->premul;
 	return true;
 }
 
@@ -71,6 +74,7 @@ static void load_add(hud_tex *t, const char *name)
 			t->ow = (float)ow;
 			t->oh = (float)oh;
 			t->ok = true;
+			t->premul = false;
 		}
 		break;
 	}
@@ -119,30 +123,56 @@ void hud_c2d_unload(void)
 
 /* ---- primitives ---- */
 
-static int cur_blend = -1;
-
-static void blend(int mode)
+/* Recording mode (hud_c2d_panel_hash): the primitives hash their arguments instead of drawing. */
+static bool rec;
+static uint32_t rec_h;
+static void rec_mix(const void *p, size_t n)
 {
-	if (mode == cur_blend)
-		return;
-	C2D_Flush();
-	cur_blend = mode;
-	GPU_BLENDFACTOR s, d;
-	switch (mode) { /* FUN_004637d0 */
-	case 0: s = GPU_ONE; d = GPU_ZERO; break;
-	case 2: s = GPU_SRC_ALPHA; d = GPU_ONE; break;
-	case 4: s = GPU_ZERO; d = GPU_SRC_COLOR; break;
-	case 5: s = GPU_ONE; d = GPU_ONE; break;
-	case 6: s = GPU_DST_COLOR; d = GPU_ONE; break;
-	case 7: s = GPU_ONE_MINUS_DST_COLOR; d = GPU_ZERO; break;
-	default: s = GPU_SRC_ALPHA; d = GPU_ONE_MINUS_SRC_ALPHA; break;
-	}
-	C3D_AlphaBlend(GPU_BLEND_ADD, GPU_BLEND_ADD, s, d, GPU_SRC_ALPHA, GPU_ONE_MINUS_SRC_ALPHA);
+	const uint8_t *b = p;
+	for (size_t i = 0; i < n; i++)
+		rec_h = (rec_h ^ b[i]) * 16777619u; /* FNV-1a */
+}
+#define REC(...)                                                                                                 	do {                                                                                                         		if (rec) {                                                                                               			const float rf_[] = {__VA_ARGS__};                                                                   			rec_mix(rf_, sizeof rf_);                                                                            			return;                                                                                              		}                                                                                                        	} while (0)
+
+
+/* PC colour 0xAARRGGBB -> 0xRRGGBBAA (spr_color) */
+static inline uint32_t pc(uint32_t argb) { return argb << 8 | argb >> 24; }
+
+/* A PC texel rect (u0,v0)-(u1,v1) of a HUD texture as an atlas sub-rect (clamped to the frame's texel
+ * centres); tex3ds may store an image rotated (top < bottom: left/right run along the texture's v). */
+typedef struct {
+	float l, r, t, b;
+	bool rot;
+} hud_uv;
+
+static void hud_map(const hud_tex *h, float u0, float v0, float u1, float v1, hud_uv *m)
+{
+	const Tex3DS_SubTexture *s = h->img.subtex;
+	Tex3DS_SubTexture sub = *s;
+	float fu0 = u0 / h->ow, fu1 = u1 / h->ow, fv0 = v0 / h->oh, fv1 = v1 / h->oh;
+	sub.left = s->left + (s->right - s->left) * fu0;
+	sub.right = s->left + (s->right - s->left) * fu1;
+	sub.top = s->top + (s->bottom - s->top) * fv0;
+	sub.bottom = s->top + (s->bottom - s->top) * fv1;
+	spritebank_clamp_sub(&sub, s, h->img.tex);
+	m->l = sub.left;
+	m->r = sub.right;
+	m->t = sub.top;
+	m->b = sub.bottom;
+	m->rot = s->top < s->bottom;
 }
 
-static u32 c2d(uint32_t argb)
+/* corner texcoords (Tex3DS_SubTexture{TopLeft,...}): a = 0/1 left/right, b = 0/1 top/bottom */
+static inline void hud_tc(const hud_uv *m, int a, int b, float *u, float *v)
 {
-	return C2D_Color32((argb >> 16) & 0xff, (argb >> 8) & 0xff, argb & 0xff, argb >> 24);
+	float x = a ? m->r : m->l, y = b ? m->b : m->t;
+	if (m->rot) {
+		*u = y;
+		*v = x;
+	} else {
+		*u = x;
+		*v = y;
+	}
 }
 
 void hg_image(int t, float x0, float y0, float x1, float y1, float u0, float v0, float u1, float v1, float angle,
@@ -150,9 +180,11 @@ void hg_image(int t, float x0, float y0, float x1, float y1, float u0, float v0,
 {
 	if (t < 0 || t >= HT_COUNT || !tex[t].ok || (argb >> 24) == 0)
 		return;
+	REC(1, (float)t, x0, y0, x1, y1, u0, v0, u1, v1, angle, (float)(argb >> 16), (float)(argb & 0xffff), (float)bl);
 	const hud_tex *h = &tex[t];
-	const Tex3DS_SubTexture *s = h->img.subtex;
-	/* Mirrored rects (P2): positive extents, mirrored texture coordinates. */
+	/* Mirrored rects (P2) and v running upwards (noise strips): positive extents, mirrored texture
+	 * coordinates. (The citro2d version flipped v with a negative quad height, which citro2d lays out
+	 * below the rect: the banner noise strip was drawn one strip height too low.) */
 	if (x1 < x0) {
 		float tmp = x0;
 		x0 = x1;
@@ -169,53 +201,71 @@ void hg_image(int t, float x0, float y0, float x1, float y1, float u0, float v0,
 		v0 = v1;
 		v1 = tmp;
 	}
-	/* v running upwards (noise strips): crop with v0 < v1 and flip the quad instead.
-	 * citro2d treats a sub-texture with top < bottom as tex3ds-rotated, so a crop
-	 * with top/bottom swapped would be misread as (un)rotated. */
 	bool vflip = v1 < v0;
+	hud_uv m;
+	hud_map(h, u0, vflip ? v1 : v0, u1, vflip ? v0 : v1, &m);
 	if (vflip) {
-		float tmp = v0;
-		v0 = v1;
-		v1 = tmp;
+		float tmp = m.t;
+		m.t = m.b;
+		m.b = tmp;
 	}
-	Tex3DS_SubTexture sub = *s;
-	float fu0 = u0 / h->ow, fu1 = u1 / h->ow, fv0 = v0 / h->oh, fv1 = v1 / h->oh;
-	sub.left = s->left + (s->right - s->left) * fu0;
-	sub.right = s->left + (s->right - s->left) * fu1;
-	sub.top = s->top + (s->bottom - s->top) * fv0;
-	sub.bottom = s->top + (s->bottom - s->top) * fv1;
-	sub.width = (u16)fmaxf(1.0f, fabsf(x1 - x0));
-	sub.height = (u16)fmaxf(1.0f, fabsf(y1 - y0));
-	spritebank_clamp_sub(&sub, s, h->img.tex);
-	C2D_Image img = {h->img.tex, &sub};
-	blend(bl);
-	C2D_ImageTint tint;
-	C2D_PlainImageTint(&tint, c2d(argb), 1.0f);
-	float w = x1 - x0, hh = y1 - y0;
-	C2D_DrawParams p = {
-		.pos = {x0 + w * 0.5f, y0 + hh * 0.5f, w, vflip ? -hh : hh},
-		.center = {w * 0.5f, vflip ? -hh * 0.5f : hh * 0.5f}, /* negative height: same rect, texture flipped */
-		.depth = DEPTH,
-		.angle = angle,
-	};
-	C2D_DrawImage(img, &p, &tint);
+	spr_state(h->img.tex, h->premul, bl);
+	spr_vtx *v = spr_quad();
+	if (!v)
+		return;
+	u32 c = spr_color(pc(argb), bl);
+	/* as C2Di_CalcQuad: rotation about the rect centre */
+	float w = x1 - x0, hh = y1 - y0, px = x0 + w * 0.5f, py = y0 + hh * 0.5f;
+	float cx[4] = {-(w * 0.5f), -(w * 0.5f) + w, -(w * 0.5f), -(w * 0.5f) + w};
+	float cy[4] = {-(hh * 0.5f), -(hh * 0.5f), -(hh * 0.5f) + hh, -(hh * 0.5f) + hh};
+	if (angle != 0.0f) {
+		float rs = sinf(angle), rc = cosf(angle);
+		for (int k = 0; k < 4; k++) {
+			float x = cx[k] * rc - cy[k] * rs, y = cy[k] * rc + cx[k] * rs;
+			cx[k] = x;
+			cy[k] = y;
+		}
+	}
+	for (int k = 0; k < 4; k++) { /* TL TR BL BR */
+		float tu, tv;
+		hud_tc(&m, k & 1, k >> 1, &tu, &tv);
+		spr_set(&v[k], cx[k] + px, cy[k] + py, tu, tv, c);
+	}
 }
 
 void hg_quad(int t, const float x[4], const float y[4], float u0, float v0, float u1, float v1, uint32_t argb, int bl)
 {
-	float yt = y[0], yb = y[2];
-	if (yb <= yt)
+	if (t < 0 || t >= HT_COUNT || !tex[t].ok || (argb >> 24) == 0 || y[2] <= y[0])
 		return;
-	for (int row = (int)floorf(yt); row < (int)ceilf(yb); row++) {
-		float a = fmaxf(yt, (float)row), b = fminf(yb, (float)(row + 1));
-		if (b <= a)
-			continue;
-		float tm = ((a + b) * 0.5f - yt) / (yb - yt);
-		float xl = x[0] + (x[3] - x[0]) * tm, xr = x[1] + (x[2] - x[1]) * tm;
-		float va = v0 + (v1 - v0) * (a - yt) / (yb - yt), vb = v0 + (v1 - v0) * (b - yt) / (yb - yt);
-		if (fabsf(xr - xl) < 0.01f)
-			continue;
-		hg_image(t, xl, a, xr, b, u0, va, u1, vb, 0, argb, bl);
+	REC(2, (float)t, x[0], x[1], x[2], x[3], y[0], y[1], y[2], y[3], u0, v0, u1, v1, (float)(argb >> 16),
+	    (float)(argb & 0xffff), (float)bl);
+	const hud_tex *h = &tex[t];
+	bool uf = u1 < u0, vf = v1 < v0;
+	hud_uv m;
+	hud_map(h, uf ? u1 : u0, vf ? v1 : v0, uf ? u0 : u1, vf ? v0 : v1, &m);
+	if (uf) {
+		float tmp = m.l;
+		m.l = m.r;
+		m.r = tmp;
+	}
+	if (vf) {
+		float tmp = m.t;
+		m.t = m.b;
+		m.b = tmp;
+	}
+	spr_state(h->img.tex, h->premul, bl);
+	spr_vtx *v = spr_quad();
+	if (!v)
+		return;
+	u32 c = spr_color(pc(argb), bl);
+	/* corners TL,TR,BR,BL = (u0,v0) (u1,v0) (u1,v1) (u0,v1), written TR TL BR BL: the quad's triangles
+	 * (TR BR TL) (TL BR BL) are the PC fan TL-TR-BR, TL-BR-BL */
+	static const int ord[4] = {1, 0, 2, 3}, ca[4] = {0, 1, 1, 0}, cb[4] = {0, 0, 1, 1};
+	for (int k = 0; k < 4; k++) {
+		int i = ord[k];
+		float tu, tv;
+		hud_tc(&m, ca[i], cb[i], &tu, &tv);
+		spr_set(&v[k], x[i], y[i], tu, tv, c);
 	}
 }
 
@@ -223,8 +273,64 @@ void hg_tri(const float x[3], const float y[3], const uint32_t argb[3], int bl)
 {
 	if (!(argb[0] >> 24) && !(argb[1] >> 24) && !(argb[2] >> 24))
 		return;
-	blend(bl);
-	C2D_DrawTriangle(x[0], y[0], c2d(argb[0]), x[1], y[1], c2d(argb[1]), x[2], y[2], c2d(argb[2]), DEPTH);
+	REC(3, x[0], x[1], x[2], y[0], y[1], y[2], (float)(argb[0] >> 16), (float)(argb[0] & 0xffff),
+	    (float)(argb[1] >> 16), (float)(argb[1] & 0xffff), (float)(argb[2] >> 16), (float)(argb[2] & 0xffff), (float)bl);
+	uint32_t c[3] = {pc(argb[0]), pc(argb[1]), pc(argb[2])};
+	spr_tri_solid(x, y, c, bl);
+}
+
+void hg_tri2(const float x[4], const float y[4], const uint32_t argb[4], int bl)
+{
+	if (!(argb[0] >> 24) && !(argb[1] >> 24) && !(argb[2] >> 24) && !(argb[3] >> 24))
+		return;
+	REC(6, x[0], x[1], x[2], x[3], y[0], y[1], y[2], y[3], (float)(argb[0] >> 16), (float)(argb[0] & 0xffff),
+	    (float)(argb[1] >> 16), (float)(argb[1] & 0xffff), (float)(argb[2] >> 16), (float)(argb[2] & 0xffff),
+	    (float)(argb[3] >> 16), (float)(argb[3] & 0xffff), (float)bl);
+	spr_state(NULL, false, bl);
+	spr_vtx *v = spr_quad();
+	if (!v)
+		return;
+	/* (P0 P1 P2) (P0 P2 P3): diagonal P0-P2 -> quad order P1 P0 P2 P3 */
+	static const int ord[4] = {1, 0, 2, 3};
+	u32 c0 = spr_color(pc(argb[0]), bl);
+	for (int k = 0; k < 4; k++) {
+		int i = ord[k];
+		u32 c = argb[i] == argb[0] ? c0 : spr_color(pc(argb[i]), bl);
+		spr_set(&v[k], x[i], y[i], SPR_SOLID_UV, SPR_SOLID_UV, c);
+	}
+}
+
+static inline uint32_t grad_colour(int t, float v, uint32_t argb)
+{
+	uint32_t g = 0xffffffff;
+	if (t >= HT_HYPER_B && t <= HT_HYPER_R) {
+		int row = (int)v;
+		g = hud_hyper_grad[t - HT_HYPER_B][row < 0 ? 0 : row > 255 ? 255 : row];
+	}
+	if (argb == 0xffffffff)
+		return g;
+	uint32_t r = ((g >> 16 & 0xff) * (argb >> 16 & 0xff)) / 255, gg = ((g >> 8 & 0xff) * (argb >> 8 & 0xff)) / 255;
+	uint32_t b = ((g & 0xff) * (argb & 0xff)) / 255, a = ((g >> 24) * (argb >> 24)) / 255;
+	return a << 24 | r << 16 | gg << 8 | b;
+}
+
+/* (P0 P1 P2) (P2 P1 P3): diagonal P1-P2, already the quad's TL TR BL BR order */
+void hg_tri_tex2(int t, const float x[4], const float y[4], const float u[4], const float v[4], uint32_t argb, int bl)
+{
+	(void)u;
+	uint32_t c[4];
+	for (int k = 0; k < 4; k++)
+		c[k] = grad_colour(t, v[k], argb);
+	REC(7, (float)t, x[0], x[1], x[2], x[3], y[0], y[1], y[2], y[3], v[0], v[1], v[2], v[3], (float)(argb >> 16),
+	    (float)(argb & 0xffff), (float)bl);
+	if (!(c[0] >> 24) && !(c[1] >> 24) && !(c[2] >> 24) && !(c[3] >> 24))
+		return;
+	spr_state(NULL, false, bl);
+	spr_vtx *q = spr_quad();
+	if (!q)
+		return;
+	for (int k = 0; k < 4; k++)
+		spr_set(&q[k], x[k], y[k], SPR_SOLID_UV, SPR_SOLID_UV, spr_color(pc(c[k]), bl));
 }
 
 void hg_tri_tex(int t, const float x[3], const float y[3], const float u[3], const float v[3], uint32_t argb, int bl)
@@ -248,34 +354,56 @@ void hg_rect(float l, float t, float r, float b, uint32_t argb, int bl)
 {
 	if (!(argb >> 24) || r <= l || b <= t)
 		return;
-	blend(bl);
-	C2D_DrawRectSolid(l, t, DEPTH, r - l, b - t, c2d(argb));
+	REC(4, l, t, r, b, (float)(argb >> 16), (float)(argb & 0xffff), (float)bl);
+	spr_rect_solid(l, t, r, b, pc(argb), bl);
 }
 
 void hg_line(float x0, float y0, float x1, float y1, uint32_t argb, int bl)
 {
 	if (!(argb >> 24))
 		return;
-	blend(bl);
-	C2D_DrawLine(x0, y0, c2d(argb), x1, y1, c2d(argb), 1.0f, DEPTH);
+	REC(5, x0, y0, x1, y1, (float)(argb >> 16), (float)(argb & 0xffff), (float)bl);
+	/* C2D_DrawLine with thickness 1: the quad p0 -/+ n, p1 -/+ n (n = half-pixel normal) */
+	float dx = x1 - x0, dy = y1 - y0, len = sqrtf(dx * dx + dy * dy);
+	if (!(len > 0.0f))
+		return;
+	float ux = (-dy / len) * 0.5f, uy = (dx / len) * 0.5f;
+	spr_state(NULL, false, bl);
+	spr_vtx *v = spr_quad();
+	if (!v)
+		return;
+	u32 c = spr_color(pc(argb), bl);
+	spr_set(&v[0], x0 - ux, y0 - uy, SPR_SOLID_UV, SPR_SOLID_UV, c);
+	spr_set(&v[1], x1 - ux, y1 - uy, SPR_SOLID_UV, SPR_SOLID_UV, c);
+	spr_set(&v[2], x0 + ux, y0 + uy, SPR_SOLID_UV, SPR_SOLID_UV, c);
+	spr_set(&v[3], x1 + ux, y1 + uy, SPR_SOLID_UV, SPR_SOLID_UV, c);
 }
 
+/* Inside the top screen's batch pass (render_world). */
 void hud_c2d_draw(const aos_world *w, int W, int H, float camX, float camY, float zoomDiv)
 {
 	hud_screen sc = hud_screen_for(W, H);
 	hud_camera cam = {camX, camY, zoomDiv};
-	cur_blend = -1;
-	C2D_SetTintMode(C2D_TintMult);
+	spr_depth(DEPTH);
 	hud_draw(w, &sc, &cam);
-	blend(1);
-	C2D_SetTintMode(C2D_TintSolid); /* citro2d default (text rendering relies on it) */
 }
 
+/* Inside a batch pass on the bottom panel's target (panel.c). */
 void hud_c2d_panel(const aos_world *w, int W, int H)
 {
-	cur_blend = -1;
-	C2D_SetTintMode(C2D_TintMult);
+	spr_depth(DEPTH);
 	hud_panel_draw(w, W, H);
-	blend(1);
-	C2D_SetTintMode(C2D_TintSolid);
+}
+
+/* Hash of everything hud_c2d_panel would draw (its primitives with their arguments and the portrait textures),
+ * no GPU work: the bottom screen is skipped while it does not change (panel.c). */
+uint32_t hud_c2d_panel_hash(const aos_world *w, int W, int H)
+{
+	rec = true;
+	rec_h = 2166136261u;
+	for (int i = 0; i < 2; i++)
+		rec_mix(&tex[HT_PORTRAIT0 + i].img, sizeof tex[0].img);
+	hud_panel_draw(w, W, H);
+	rec = false;
+	return rec_h;
 }

@@ -56,9 +56,38 @@ bool bench_next(int *p1, int *p2, int *stage); /* false = no more scenarios */
 void bench_setup(struct aos_world *w);         /* after aos_match_init */
 void bench_pre_tick(struct aos_world *w);
 bool bench_done(void);                         /* true = this scenario's frames are done */
+/* Optional 7th bench column: bit flags that remove one piece of the frame, to see what moves the time. */
+enum {
+	BENCH_NO_STAGE = 1,     /* skip stage3ds_draw (the update still runs) */
+	BENCH_NO_HUD = 2,       /* skip hud_c2d_draw */
+	BENCH_NO_SUBMIT = 4,    /* build the draw list but do not submit it to citro2d */
+	BENCH_HALF_SPRITES = 8, /* draw every sprite quad at half width/height (1/4 of the fill) */
+	BENCH_NO_DRAWLIST = 16, /* skip aos_draw_world and the submit (sim + stage + HUD only) */
+	BENCH_ONE_BLEND = 32,   /* (no effect since the 2D batcher, sprbatch.h: blend 1/2 share one GPU state) */
+};
+extern int bench_flags;
+/* Per-frame render counters (reset by prof_frame_done). px = screen pixels covered by sprite quads
+ * (clipped bounding box), a fill-rate proxy; [0] alpha blend, [1] additive/screen, [2] other. */
+typedef struct {
+	unsigned quads, tris, texsw, blendsw, stage_draws, stage_verts;
+	float px[3];
+} prof_counters;
+extern prof_counters prof_cnt;
 #define PROF_BEGIN(s) prof_begin(s)
 #define PROF_END(s) prof_end(s)
+/* Scripted input (sdmc:/aos2_keys.txt, see prof.c): deterministic per-frame key
+ * presses, scene waits and two-screen frame dumps for emulator test runs. */
+void prof_script_step(void);         /* once per main-loop frame, before input is read */
+uint32_t prof_script_keys(void);     /* libctru KEY_* bits held by the script this frame */
+bool prof_script_touch(int *x, int *y); /* scripted touch this frame */
+int prof_script_decide(void);        /* once after "decide [1|2]": winner 1 = P1, 2 = P2 (Battle) */
+void prof_script_frame_end(void);    /* after C3D_FrameEnd: writes requested screenshots */
 #else
+#define prof_script_step() ((void)0)
+#define prof_script_keys() 0u
+#define prof_script_touch(x, y) ((void)(x), (void)(y), false)
+#define prof_script_decide() 0
+#define prof_script_frame_end() ((void)0)
 #define PROF_BEGIN(s) ((void)0)
 #define PROF_END(s) ((void)0)
 #define prof_frame_start() ((void)0)

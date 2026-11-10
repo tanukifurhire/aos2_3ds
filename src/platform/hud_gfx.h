@@ -46,8 +46,13 @@ void hg_image(int tex, float x0, float y0, float x1, float y1, float u0, float v
 void hg_quad(int tex, const float x[4], const float y[4], float u0, float v0, float u1, float v1, uint32_t argb,
              int blend);
 void hg_tri(const float x[3], const float y[3], const uint32_t argb[3], int blend);
+/* Two hg_tri in one call (the same triangles, so the same pixels): (P0 P1 P2) and (P0 P2 P3). */
+void hg_tri2(const float x[4], const float y[4], const uint32_t argb[4], int blend);
 void hg_tri_tex(int tex, const float x[3], const float y[3], const float u[3], const float v[3], uint32_t argb,
                 int blend);
+/* Two hg_tri_tex in one call: (P0 P1 P2) and (P2 P1 P3). */
+void hg_tri_tex2(int tex, const float x[4], const float y[4], const float u[4], const float v[4], uint32_t argb,
+                 int blend);
 void hg_rect(float l, float t, float r, float b, uint32_t argb, int blend);
 void hg_line(float x0, float y0, float x1, float y1, uint32_t argb, int blend);
 

@@ -1,0 +1,25 @@
+# p1 p2 stage frames hyper difficulty flags   (flags: prof.h BENCH_*; 1 no stage, 2 no HUD, 4 no submit,
+#  8 half-size sprites, 16 no draw list, 32 one blend mode). Same chars + flags 0..32 = the same match
+#  (deterministic sim, CPU RNG seeded), so rows differ only in the removed piece.
+# Before the War (stage 5, wireframe room): mirrors at max difficulty, hyper gauges pinned
+17 17 5 3600 1 2 0
+5 5 5 3600 1 2 0
+18 18 5 3600 1 2 0
+17 5 5 3600 1 2 0
+# Guardian's Chamber (stage 17, cubes)
+17 17 17 3600 1 2 0
+5 5 17 3600 1 2 0
+18 18 17 3600 1 2 0
+# one piece removed at a time (stage 5)
+17 17 5 3600 1 2 1
+17 17 5 3600 1 2 2
+17 17 5 3600 1 2 4
+17 17 5 3600 1 2 8
+17 17 5 3600 1 2 16
+17 17 5 3600 1 2 32
+5 5 5 3600 1 2 1
+5 5 5 3600 1 2 2
+5 5 5 3600 1 2 4
+5 5 5 3600 1 2 8
+5 5 5 3600 1 2 16
+5 5 5 3600 1 2 32

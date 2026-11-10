@@ -9,6 +9,7 @@
 #include "hud.h"
 #include "stage.h"
 #include "spritebank.h"
+#include "sprbatch.h"
 
 #define SCR_W 400
 #define SCR_H 240
@@ -64,6 +65,7 @@ static bool cached[3][CACHE];
 bool render_load_match(const aos_world *w)
 {
 	render_unload_match();
+	spr_init(); /* the match's 2D batcher (sprbatch.c); idempotent */
 	for (size_t i = 0; i < sizeof common_folders / sizeof common_folders[0]; i++)
 		spritebank_load_resident(common_folders[i]); /* never unloaded: VRAM while it fits */
 	bool ok = true;
@@ -110,25 +112,14 @@ static const aos_frame *lookup(int tex, int bank)
 	return cache[b][tex];
 }
 
-static int cur_blend = -1;
+/* The PC's current blend mode: AOS_BLEND_KEEP draws use it (the GPU state is the batcher's, sprbatch.h). */
+static int pc_blend = AOS_BLEND_ALPHA;
 
-static void set_blend(int mode)
+static int resolve_blend(int b)
 {
-	if (mode == cur_blend || mode == AOS_BLEND_KEEP)
-		return;
-	C2D_Flush();
-	cur_blend = mode;
-	GPU_BLENDFACTOR s, d;
-	switch (mode) {
-	case AOS_BLEND_OPAQUE: s = GPU_ONE; d = GPU_ZERO; break;
-	case AOS_BLEND_ADD_ALPHA: s = GPU_SRC_ALPHA; d = GPU_ONE; break;
-	case AOS_BLEND_MUL: s = GPU_ZERO; d = GPU_SRC_COLOR; break;
-	case AOS_BLEND_ADD: s = GPU_ONE; d = GPU_ONE; break;
-	case AOS_BLEND_SCREEN: s = GPU_DST_COLOR; d = GPU_ONE; break;
-	case AOS_BLEND_INVERT: s = GPU_ONE_MINUS_DST_COLOR; d = GPU_ZERO; break;
-	default: s = GPU_SRC_ALPHA; d = GPU_ONE_MINUS_SRC_ALPHA; break;
-	}
-	C3D_AlphaBlend(GPU_BLEND_ADD, GPU_BLEND_ADD, s, d, GPU_SRC_ALPHA, GPU_ONE_MINUS_SRC_ALPHA);
+	if (b != AOS_BLEND_KEEP)
+		pc_blend = b;
+	return pc_blend;
 }
 
 static void draw_cmd(const aos_dcmd *c, float camX, float camY, float zoomDiv)
@@ -139,18 +130,17 @@ static void draw_cmd(const aos_dcmd *c, float camX, float camY, float zoomDiv)
 		tex_white = aos_tex("$white");
 	}
 	const char *tn = aos_tex_name(c->tex);
-	if (tn[0] == '$') { /* pseudo textures from fx.c */
+	if (tn[0] == '$') { /* pseudo textures from fx.c: solid primitives in the same batch (sprbatch.h) */
 		if (c->tex == tex_tri) {
 			float px[3], py[3];
-			u32 col[3];
 			for (int k = 0; k < 3; k++) {
 				px[k] = SCR_W / 2 + (c->tri[2 * k] - camX) / zoomDiv;
 				py[k] = SCR_H / 2 - (c->tri[2 * k + 1] - camY) / zoomDiv;
-				u32 v = c->triRgba[k];
-				col[k] = C2D_Color32((v >> 24) & 0xff, (v >> 16) & 0xff, (v >> 8) & 0xff, v & 0xff);
 			}
-			set_blend(c->blend);
-			C2D_DrawTriangle(px[0], py[0], col[0], px[1], py[1], col[1], px[2], py[2], col[2], 0.5f);
+			spr_tri_solid(px, py, c->triRgba, resolve_blend(c->blend));
+#ifdef AOS_PROFILE
+			prof_cnt.tris++;
+#endif
 			return;
 		}
 		if (c->tex != tex_white)
@@ -166,29 +156,31 @@ static void draw_cmd(const aos_dcmd *c, float camX, float camY, float zoomDiv)
 			px[k] = sx + ux[k] * hw * ca - uy[k] * hh * sa;
 			py[k] = sy + ux[k] * hw * sa + uy[k] * hh * ca;
 		}
-		u32 col = C2D_Color32((c->rgba >> 24) & 0xff, (c->rgba >> 16) & 0xff, (c->rgba >> 8) & 0xff, c->rgba & 0xff);
-		set_blend(c->blend);
-		C2D_DrawTriangle(px[0], py[0], col, px[1], py[1], col, px[2], py[2], col, 0.5f);
-		C2D_DrawTriangle(px[2], py[2], col, px[3], py[3], col, px[0], py[0], col, 0.5f);
+		int bl = resolve_blend(c->blend);
+		spr_state(NULL, false, bl);
+		spr_vtx *v = spr_quad();
+		if (!v)
+			return;
+		u32 col = spr_color(c->rgba, bl);
+		/* corners 0..3 run around the rect; quad vertex order is TL TR BL BR */
+		spr_set(&v[0], px[0], py[0], SPR_SOLID_UV, SPR_SOLID_UV, col);
+		spr_set(&v[1], px[1], py[1], SPR_SOLID_UV, SPR_SOLID_UV, col);
+		spr_set(&v[2], px[3], py[3], SPR_SOLID_UV, SPR_SOLID_UV, col);
+		spr_set(&v[3], px[2], py[2], SPR_SOLID_UV, SPR_SOLID_UV, col);
 		return;
 	}
 	const aos_frame *fr = lookup(c->tex, c->bank);
 	if (!fr)
 		return;
-	C2D_Image img = fr->img;
-	Tex3DS_SubTexture sub;
+	const Tex3DS_SubTexture *fs = fr->img.subtex;
+	Tex3DS_SubTexture sub = *fs;
 	if (c->hasSrc && fr->ow && fr->oh) {
-		const Tex3DS_SubTexture *s = img.subtex;
 		float u0 = c->src[0] / fr->ow, u1 = c->src[2] / fr->ow;
 		float v0 = c->src[1] / fr->oh, v1 = c->src[3] / fr->oh;
-		sub = *s;
-		sub.left = s->left + (s->right - s->left) * u0;
-		sub.right = s->left + (s->right - s->left) * u1;
-		sub.top = s->top + (s->bottom - s->top) * v0;
-		sub.bottom = s->top + (s->bottom - s->top) * v1;
-		sub.width = (u16)fmaxf(1.0f, s->width * (u1 - u0));
-		sub.height = (u16)fmaxf(1.0f, s->height * (v1 - v0));
-		img.subtex = &sub;
+		sub.left = fs->left + (fs->right - fs->left) * u0;
+		sub.right = fs->left + (fs->right - fs->left) * u1;
+		sub.top = fs->top + (fs->bottom - fs->top) * v0;
+		sub.bottom = fs->top + (fs->bottom - fs->top) * v1;
 	}
 	float wW, wH; /* world size of the quad */
 	if (c->halfW > 0) {
@@ -206,6 +198,12 @@ static void draw_cmd(const aos_dcmd *c, float camX, float camY, float zoomDiv)
 	float sx = SCR_W / 2 + (c->x - camX) / zoomDiv;
 	float sy = SCR_H / 2 - (c->y - camY) / zoomDiv;
 	float pw = wW / zoomDiv, ph = wH / zoomDiv;
+#ifdef AOS_PROFILE
+	if (bench_flags & BENCH_HALF_SPRITES) {
+		pw *= 0.5f;
+		ph *= 0.5f;
+	}
+#endif
 	if (fabsf(pw) < 0.5f || fabsf(ph) < 0.5f)
 		return;
 	/* off-screen cull; a rotated quad reaches up to |pw|/2 + |ph|/2 from its centre on either axis
@@ -215,40 +213,82 @@ static void draw_cmd(const aos_dcmd *c, float camX, float camY, float zoomDiv)
 		ex = ey = ex + ey;
 	if (sx + ex < -64 || sx - ex > SCR_W + 64 || sy + ey < -64 || sy - ey > SCR_H + 64)
 		return;
-	set_blend(c->blend);
-	C2D_ImageTint tint;
-	u32 rgba = c->rgba;
-	u32 abgr = C2D_Color32((rgba >> 24) & 0xff, (rgba >> 16) & 0xff, (rgba >> 8) & 0xff, rgba & 0xff);
-	C2D_PlainImageTint(&tint, abgr, 1.0f);
-	/* Mirroring (flipX, negative sx/sy): citro2d lays the quad out from
-	 * -center with |w|, so negative sizes/centres shift the sprite off its
-	 * position by a full width (and make rotated sprites orbit). Keep the quad
-	 * centred with positive extents and mirror the texture coordinates. */
-	float qw = c->flipX ? -pw : pw, qh = ph;
-	if (img.subtex != &sub) {
-		sub = *img.subtex;
-		img.subtex = &sub;
-	}
-	spritebank_clamp_sub(&sub, fr->img.subtex, fr->img.tex);
+	int bl = resolve_blend(c->blend);
+	spr_state(fr->img.tex, fr->premul, bl);
+	spr_vtx *v = spr_quad();
+	if (!v)
+		return;
+	u32 col = spr_color(c->rgba, bl);
+	/* Mirroring (flipX, negative sx/sy): the quad keeps positive extents around its centre and the texture
+	 * coordinates are mirrored per corner. (Swapping the sub-rectangle's top/bottom instead, as the citro2d
+	 * version did, made Tex3DS read a non-rotated frame as tex3ds-rotated (top < bottom): vertically mirrored
+	 * sprites sampled a transposed atlas region - the "P2 sprite missing" / white or black square bug.) */
+	float qw = pw, qh = ph;
+	bool mx = c->flipX, my = false;
 	if (qw < 0) {
-		float t = sub.left;
-		sub.left = sub.right;
-		sub.right = t;
 		qw = -qw;
+		mx = !mx;
 	}
 	if (qh < 0) {
-		float t = sub.top;
-		sub.top = sub.bottom;
-		sub.bottom = t;
 		qh = -qh;
+		my = true;
 	}
-	C2D_DrawParams p = {
-		.pos = {sx, sy, qw, qh},
-		.center = {qw * 0.5f, qh * 0.5f},
-		.depth = 0.5f,
-		.angle = -(float)c->rotZ * (6.2831855f / 65536.0f), /* world CCW -> screen (y down) */
-	};
-	C2D_DrawImage(img, &p, &tint);
+	spritebank_clamp_sub(&sub, fs, fr->img.tex);
+	/* corners as C2Di_CalcQuad (centre pivot, same float operations: identical vertices) */
+	float hx = qw * 0.5f, hy = qh * 0.5f;
+	float x0 = -hx, y0 = -hy, x1 = -hx + qw, y1 = -hy + qh;
+	float cx[4] = {x0, x1, x0, x1}, cy[4] = {y0, y0, y1, y1}; /* TL TR BL BR */
+	float ang = -(float)c->rotZ * (6.2831855f / 65536.0f); /* world CCW -> screen (y down) */
+	if (ang != 0.0f) {
+		float rs = sinf(ang), rc = cosf(ang);
+		for (int k = 0; k < 4; k++) {
+			float x = cx[k] * rc - cy[k] * rs, y = cy[k] * rc + cx[k] * rs;
+			cx[k] = x;
+			cy[k] = y;
+		}
+	}
+	/* texcoords of the image corners (Tex3DS_SubTexture{TopLeft,...}; the frame's own orientation decides
+	 * whether tex3ds stored it rotated), then mirrored */
+	float ul = sub.left, ur = sub.right, vt = sub.top, vb = sub.bottom;
+	if (mx) {
+		float t = ul;
+		ul = ur;
+		ur = t;
+	}
+	if (my) {
+		float t = vt;
+		vt = vb;
+		vb = t;
+	}
+	if (!(fs->top < fs->bottom)) {
+		spr_set(&v[0], cx[0] + sx, cy[0] + sy, ul, vt, col);
+		spr_set(&v[1], cx[1] + sx, cy[1] + sy, ur, vt, col);
+		spr_set(&v[2], cx[2] + sx, cy[2] + sy, ul, vb, col);
+		spr_set(&v[3], cx[3] + sx, cy[3] + sy, ur, vb, col);
+	} else {
+		spr_set(&v[0], cx[0] + sx, cy[0] + sy, vt, ul, col);
+		spr_set(&v[1], cx[1] + sx, cy[1] + sy, vt, ur, col);
+		spr_set(&v[2], cx[2] + sx, cy[2] + sy, vb, ul, col);
+		spr_set(&v[3], cx[3] + sx, cy[3] + sy, vb, ur, col);
+	}
+#ifdef AOS_PROFILE
+	{
+		prof_cnt.quads++;
+		/* covered screen pixels: the quad's bounding box clipped to the screen, scaled by the
+		 * quad/bbox area ratio for rotated quads */
+		float ca = fabsf(cosf(ang)), sa = fabsf(sinf(ang));
+		float bw = qw * ca + qh * sa, bh = qw * sa + qh * ca;
+		float bx0 = fmaxf(0, sx - bw / 2), bx1 = fminf(SCR_W, sx + bw / 2);
+		float by0 = fmaxf(0, sy - bh / 2), by1 = fminf(SCR_H, sy + bh / 2);
+		if (bx1 > bx0 && by1 > by0 && bw > 0 && bh > 0) {
+			float a = (bx1 - bx0) * (by1 - by0) * (qw * qh) / (bw * bh);
+			int k = bl == AOS_BLEND_ADD || bl == AOS_BLEND_ADD_ALPHA || bl == AOS_BLEND_SCREEN ? 1
+			        : bl == AOS_BLEND_MUL || bl == AOS_BLEND_INVERT || bl == AOS_BLEND_OPAQUE ? 2
+			                                                                                : 0;
+			prof_cnt.px[k] += a;
+		}
+	}
+#endif
 }
 
 void aos_draw_players(aos_world *w);
@@ -261,7 +301,8 @@ static void arena_ring(const aos_world *w, float zoomDiv)
 {
 	float t = sinf(((float)(w->frame % 100) / 100.0f) * 6.2831855f);
 	float in = -(t * 5.0f) + 20.0f, out = -(t * 20.0f) + 80.0f, R = 540.0f;
-	u32 edge = C2D_Color32(0xff, 0x80, 0x40, (u8)((int)(t * 32.0f) + 0x80)), clear = C2D_Color32(0xff, 0x80, 0x40, 0);
+	u32 ea = (u32)(u8)((int)(t * 32.0f) + 0x80);
+	u32 edge = spr_color(0xff804000u | ea, AOS_BLEND_ALPHA), clear = spr_color(0xff804000u, AOS_BLEND_ALPHA);
 	float ox = SCR_W / 2 - w->obj.camX / zoomDiv, oy = SCR_H / 2 + w->obj.camY / zoomDiv;
 	static float rc[73], rs[73]; /* cosf/sinf of the fixed segment angles, computed once */
 	static bool rready;
@@ -273,15 +314,21 @@ static void arena_ring(const aos_world *w, float zoomDiv)
 		}
 		rready = true;
 	}
+	spr_state(NULL, false, AOS_BLEND_ALPHA);
 	for (int i = 0; i < 72; i++) {
 		float c0 = rc[i] / zoomDiv, s0 = -rs[i] / zoomDiv, c1 = rc[i + 1] / zoomDiv, s1 = -rs[i + 1] / zoomDiv;
 		float rr[2] = {R + out, R - in};
 		for (int k = 0; k < 2; k++) {
 			float r = rr[k];
-			C2D_DrawTriangle(ox + c0 * r, oy + s0 * r, clear, ox + c1 * r, oy + s1 * r, clear, ox + c1 * R, oy + s1 * R,
-			                 edge, 0);
-			C2D_DrawTriangle(ox + c0 * r, oy + s0 * r, clear, ox + c1 * R, oy + s1 * R, edge, ox + c0 * R, oy + s0 * R,
-			                 edge, 0);
+			/* the PC's two triangles (o0 o1 e1) (o0 e1 e0) as one quad: TL=o1 TR=o0 BL=e1 BR=e0 gives
+			 * (TL BL TR) (TR BL BR) = the same two triangles */
+			spr_vtx *v = spr_quad();
+			if (!v)
+				return;
+			spr_set(&v[0], ox + c1 * r, oy + s1 * r, SPR_SOLID_UV, SPR_SOLID_UV, clear); /* o1 */
+			spr_set(&v[1], ox + c0 * r, oy + s0 * r, SPR_SOLID_UV, SPR_SOLID_UV, clear); /* o0 */
+			spr_set(&v[2], ox + c1 * R, oy + s1 * R, SPR_SOLID_UV, SPR_SOLID_UV, edge);  /* e1 */
+			spr_set(&v[3], ox + c0 * R, oy + s0 * R, SPR_SOLID_UV, SPR_SOLID_UV, edge);  /* e0 */
 		}
 	}
 }
@@ -297,7 +344,10 @@ void render_world(C3D_RenderTarget *top, const aos_world *cw)
 	float zoomDiv = Z / SCREEN_SCALE;
 	PROF_BEGIN(PROF_DRAWLIST);
 	aos_draw_begin();
-	aos_draw_world(w); /* shared with the host smoke test (src/sim/drawworld.c) */
+#ifdef AOS_PROFILE
+	if (!(bench_flags & BENCH_NO_DRAWLIST))
+#endif
+		aos_draw_world(w); /* shared with the host smoke test (src/sim/drawworld.c) */
 	PROF_END(PROF_DRAWLIST);
 
 	/* gameplay layer clear colour 0xff0055aa (FUN_005f91d0), then the stage
@@ -305,20 +355,32 @@ void render_world(C3D_RenderTarget *top, const aos_world *cw)
 	C2D_TargetClear(top, C2D_Color32(0, 0x55, 0xaa, 255));
 	C2D_SceneBegin(top);
 	PROF_BEGIN(PROF_STAGE_DRAW);
-	stage3ds_draw();
+#ifdef AOS_PROFILE
+	if (!(bench_flags & BENCH_NO_STAGE))
+#endif
+		stage3ds_draw();
 	PROF_END(PROF_STAGE_DRAW);
 	PROF_BEGIN(PROF_2D);
-	C2D_SetTintMode(C2D_TintMult);
-	cur_blend = -1;
-	set_blend(AOS_BLEND_ALPHA);
+	/* arena ring, draw list and HUD: one batch pass (sprbatch.h), blend 1 and 2 without state changes */
+	spr_frame_begin();
+	spr_begin(SCR_W, 0.0f); /* the ring was drawn at citro2d depth 0, sprites at 0.5, the HUD at 0.9 */
+	pc_blend = AOS_BLEND_ALPHA;
 	arena_ring(w, zoomDiv);
-	for (int i = 0; i < aos_dl.n; i++)
+	spr_depth(0.5f);
+	int ndl = aos_dl.n;
+#ifdef AOS_PROFILE
+	if (bench_flags & BENCH_NO_SUBMIT)
+		ndl = 0;
+#endif
+	for (int i = 0; i < ndl; i++)
 		draw_cmd(&aos_dl.cmd[i], w->obj.camX, w->obj.camY, zoomDiv);
-	set_blend(AOS_BLEND_ALPHA);
 	PROF_END(PROF_2D);
 	/* HUD, round banners, transitions (hud.c, docs/re/hud.md) */
 	PROF_BEGIN(PROF_HUD);
-	hud_c2d_draw(w, SCR_W, SCR_H, w->obj.camX, w->obj.camY, zoomDiv);
+#ifdef AOS_PROFILE
+	if (!(bench_flags & BENCH_NO_HUD))
+#endif
+		hud_c2d_draw(w, SCR_W, SCR_H, w->obj.camX, w->obj.camY, zoomDiv);
+	spr_end();
 	PROF_END(PROF_HUD);
-	cur_blend = -1;
 }

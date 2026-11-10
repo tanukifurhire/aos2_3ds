@@ -11,6 +11,8 @@ typedef struct {
 	C2D_Image img;
 	u16 w, h;   /* atlas (scaled) size */
 	u16 ow, oh; /* original PC texture size — draw at ow/w scale to get PC units */
+	u8 premul;  /* .idx 8th field = 1: the page's RGB is premultiplied by its alpha (aos2pack -pma); the 2D
+	             * batcher (sprbatch.h) draws straight-alpha pages premultiplied in the texture combiner */
 } aos_frame;
 
 /* Loads a folder (idempotent). Returns false if its index can't be read. */

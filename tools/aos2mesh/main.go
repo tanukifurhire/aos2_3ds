@@ -59,6 +59,7 @@ func main() {
 	host := flag.String("host", "", "optional host-preview output dir")
 	tex3ds := flag.String("tex3ds", "", "tex3ds executable (empty: skip .t3x)")
 	work := flag.String("work", "build/stagetex", "staging dir for converted PNGs")
+	flag.IntVar(&texDiv, "texdiv", 1, "divide stage texture sizes by this (2 = half resolution; docs/PERF.md memory plan)")
 	flag.Parse()
 	if *game == "" || *texDir == "" || *romfs == "" {
 		flag.Usage()
@@ -286,9 +287,21 @@ func nextPOT(n int) int {
 
 // toPOT resamples to power-of-two dimensions (bilinear). UVs are normalized,
 // so a resampled texture maps identically.
+var texDiv = 1
+
 func toPOT(img image.Image) *image.NRGBA {
 	b := img.Bounds()
 	w, h := nextPOT(b.Dx()), nextPOT(b.Dy())
+	r := toPOTsize(img, w, h)
+	for d := texDiv; d > 1 && w > 16 && h > 16; d /= 2 { // halving (2:1 bilinear = 2x2 box) per step
+		w, h = w/2, h/2
+		r = toPOTsize(r, w, h)
+	}
+	return r
+}
+
+func toPOTsize(img image.Image, w, h int) *image.NRGBA {
+	b := img.Bounds()
 	src := image.NewNRGBA(image.Rect(0, 0, b.Dx(), b.Dy()))
 	for y := 0; y < b.Dy(); y++ {
 		for x := 0; x < b.Dx(); x++ {

@@ -1,0 +1,13 @@
+# Before/after list for the 2D-submit/HUD/panel/texture work (docs/PERF.md "Render pipeline"):
+# p1 p2 stage frames hyper difficulty [flags]
+# stage 5 (Before the War) mirrors at Hard with pinned hyper, as in aos2_bench_practice.txt
+17 17 5 3600 1 2
+5 5 5 3600 1 2
+18 18 5 3600 1 2
+17 5 5 3600 1 2
+10 10 5 3600 1 2
+# heavy stages (aos2_bench_perf.txt)
+9 9 12 1800 1 2
+13 13 12 1800 1 2
+5 5 8 1800 1 2
+10 3 5 1800 0 2

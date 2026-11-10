@@ -24,7 +24,7 @@ func selStatic() []menuTex {
 	full := func(n int) image.Rectangle { return image.Rect(0, 0, n, n) }
 	t := []menuTex{
 		// ArcSelect / VS (selMdl, bgMdl, systemMdl)
-		{"b_slbgp", "bgMdl/sl_bgp.png", r(0x70, 0xd4, 0x390, 0x32c), 0.5, "etc1"},
+		{"b_slbgp", "bgMdlAdd/sl_bgp.png", r(0x70, 0xd4, 0x390, 0x32c), 0.5, "etc1"}, // folder 3 (FUN_007abaf0); the 800x600 bgMdl copy does not fit this crop
 		{"b_chara00", "selMdl/sel_chara00.png", full(2048), 0.25, "etc1a4"},
 		{"b_chara01", "selMdl/sel_chara01.png", full(2048), 0.25, "etc1a4"},
 		{"b_chara02", "selMdl/sel_chara02.png", full(2048), 0.25, "etc1a4"},

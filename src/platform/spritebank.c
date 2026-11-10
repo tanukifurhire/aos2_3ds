@@ -26,7 +26,7 @@ typedef struct {
 	bool vram;
 } page_t;
 
-#define VRAM_RESERVE (768 * 1024) /* left free for render targets / later users */
+#define VRAM_RESERVE (256 * 1024) /* left free for later users (nothing in a match allocates VRAM after the atlases) */
 #ifndef MIP_LOD_BIAS
 #define MIP_LOD_BIAS -0.5f /* sharper: switch to the next mip level only past ~1.4x minification */
 #endif
@@ -45,7 +45,7 @@ static page_t *page_load(const char *path, bool try_vram)
 			uint8_t h[6];
 			size_t sz = 0;
 			if (fread(h, 1, sizeof h, f) == sizeof h)
-				sz = (size_t)(8u << (h[2] & 7)) * (8u << ((h[2] >> 3) & 7)) * (h[3] == GPU_ETC1A4 || h[3] == GPU_L8 || h[3] == GPU_A8 || h[3] == GPU_LA4 ? 1 : 2);
+				sz = (size_t)(8u << (h[2] & 7)) * (8u << ((h[2] >> 3) & 7)) * (h[3] == GPU_ETC1A4 || h[3] == GPU_L8 || h[3] == GPU_A8 || h[3] == GPU_LA4 ? 2 : h[3] == GPU_ETC1 ? 1 : 4) / 2;
 			if (sz && h[4]) /* mipmap chain */
 				sz = sz * 4 / 3;
 			fseek(f, 0, SEEK_SET);
@@ -125,7 +125,9 @@ static void free_folder(folder_t *fo)
 
 static bool load_folder(const char *folder, bool try_vram);
 
-bool spritebank_load(const char *folder) { return load_folder(folder, false); }
+/* Character atlases also try VRAM: with the reduced common atlases (docs/PERF.md, texture memory plan) a
+ * character's pages fit there; otherwise they land in linear memory as before. */
+bool spritebank_load(const char *folder) { return load_folder(folder, true); }
 bool spritebank_load_resident(const char *folder) { return load_folder(folder, true); }
 
 static bool load_folder(const char *folder, bool try_vram)
@@ -146,10 +148,13 @@ static bool load_folder(const char *folder, bool try_vram)
 		return false;
 	int cap = 128, n = 0;
 	entry *es = malloc(sizeof *es * (size_t)cap);
-	char name[NAME_LEN];
-	int page, idx, w, h, ow, oh, maxpage = -1;
+	char name[NAME_LEN], line[128];
+	int page, idx, w, h, ow, oh, premul, maxpage = -1;
 	bool ok = es != NULL;
-	while (ok && fscanf(f, "%31s %d %d %d %d %d %d", name, &page, &idx, &w, &h, &ow, &oh) == 7) {
+	while (ok && fgets(line, sizeof line, f)) {
+		premul = 0;
+		if (sscanf(line, "%31s %d %d %d %d %d %d %d", name, &page, &idx, &w, &h, &ow, &oh, &premul) < 7)
+			continue;
 		if (page < 0 || page >= MAX_PAGES || idx < 0) {
 			ok = false;
 			break;
@@ -169,6 +174,7 @@ static bool load_folder(const char *folder, bool try_vram)
 		es[n].f.h = (u16)h;
 		es[n].f.ow = (u16)ow;
 		es[n].f.oh = (u16)oh;
+		es[n].f.premul = (u8)(premul != 0);
 		/* stash page/idx in img fields until the sheets are loaded */
 		es[n].f.img.tex = NULL;
 		es[n].f.img.subtex = (const Tex3DS_SubTexture *)(uintptr_t)((page << 16) | idx);

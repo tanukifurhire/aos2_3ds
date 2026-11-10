@@ -539,11 +539,13 @@ static void vs_draw_top(void) /* FUN_0079d420 */
 	for (int p = 0; p < 2; p++)
 		vs_standing(p);
 	letterbox();
-	/* PLAYER1 / PLAYER2 / CPU labels FUN_007a9c90 (H/2-235s) */
+	/* PLAYER1 / PLAYER2 / CPU labels FUN_007a9c90 (H/2-235s, just under the PC's letterbox). Port: the
+	 * wheels hug the screen edges at 400x240, so the labels go into the top letterbox bar beside the
+	 * title (dark tints on the white bar) instead of over the icons. */
 	for (int p = 0; p < 2; p++) {
 		int id = g_setup.input[p] == INPUT_CPU ? 0x1d0 : 0x1ce + p;
-		text_draw(FONT_SYSTEM, tr_id(id), p ? W - 8 : 8, H / 2 - I(235) + 26, p ? TEXT_RIGHT : TEXT_LEFT,
-		          c2d(a8(v->ca8) | (p ? 0xff8080 : 0x80b0ff)), 0.8f, 0);
+		text_draw(FONT_SYSTEM, tr_id(id), p ? W - 6 : 6, (H / 2 - I(250)) / 2, p ? TEXT_RIGHT : TEXT_LEFT,
+		          c2d(a8(v->ca8) | (p ? 0xc02828 : 0x2850c0)), 0.8f, 88);
 	}
 	title();
 }
@@ -645,6 +647,9 @@ void pause_draw_top(void)
 	if (!p->on)
 		return;
 	ui_blend_reset();
+	/* the HUD writes depth 0.9 (hud_c2d.c): draw the overlay above it, or the dim, bands and
+	 * texts fail the depth test wherever the HUD / effects were drawn */
+	ui_set_depth(0.95f);
 	float a = p->a;
 	if (a > 0) {
 		ui_rect(0, 0, W, H, (unsigned)(int)(128 * a) << 24);
@@ -665,6 +670,7 @@ void pause_draw_top(void)
 		snprintf(d, sizeof d, "%d", p->count > 0x3c ? 3 : p->count > 0x1e ? 2 : 1);
 		text_draw(FONT_MENUBIG, d, W / 2, H / 2, TEXT_CENTER, c2d(WHITE), 2.0f, 0);
 	}
+	ui_set_depth(UI_DEPTH_DEFAULT);
 }
 
 void pause_draw_bottom(int chara)

@@ -674,6 +674,11 @@ void stage3ds_draw(void)
 	partUsed = 0;
 	gs_reset();
 	bkey = NULL;
+	/* Start from the cleared depth: 2D layers drawn before the stage in the same scene (the select
+	 * screens' sl_bgp backdrop) wrote citro2d depth, which made every Z-tested stage mesh fail
+	 * (the PC's 2D sprites never write Z). No-op for scenes that clear and then draw the stage. */
+	fullscreen(false, 0, true);
+	gs_reset();
 	/* Leave room in the GPU command buffer for the 2D layer (a full buffer hangs the frame). */
 	for (int i = 0; i < sg_cmds.n && C3D_GetCmdBufUsage() < 0.6f; i++) {
 		const sg_cmd *c = &sg_cmds.cmd[i];

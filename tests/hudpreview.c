@@ -54,6 +54,24 @@ void hg_tri(const float x[3], const float y[3], const uint32_t c[3], int blend)
 	fprintf(out, "T\t%g\t%g\t%g\t%g\t%g\t%g\t%08x\t%08x\t%08x\t%d\n", x[0], y[0], x[1], y[1], x[2], y[2], c[0], c[1], c[2],
 	        blend);
 }
+void hg_tri2(const float x[4], const float y[4], const uint32_t c[4], int blend)
+{
+	const float xa[3] = {x[0], x[1], x[2]}, ya[3] = {y[0], y[1], y[2]}, xb[3] = {x[0], x[2], x[3]}, yb[3] = {y[0], y[2], y[3]};
+	const uint32_t ca[3] = {c[0], c[1], c[2]}, cb[3] = {c[0], c[2], c[3]};
+	hg_tri(xa, ya, ca, blend);
+	hg_tri(xb, yb, cb, blend);
+}
+void hg_tri_tex2(int t, const float x[4], const float y[4], const float u[4], const float v[4], uint32_t argb, int blend)
+{
+	const int ia[3] = {0, 1, 2}, ib[3] = {2, 1, 3};
+	float xa[3], ya[3], ua[3], va[3], xb[3], yb[3], ub[3], vb[3];
+	for (int k = 0; k < 3; k++) {
+		xa[k] = x[ia[k]], ya[k] = y[ia[k]], ua[k] = u[ia[k]], va[k] = v[ia[k]];
+		xb[k] = x[ib[k]], yb[k] = y[ib[k]], ub[k] = u[ib[k]], vb[k] = v[ib[k]];
+	}
+	hg_tri_tex(t, xa, ya, ua, va, argb, blend);
+	hg_tri_tex(t, xb, yb, ub, vb, argb, blend);
+}
 void hg_tri_tex(int t, const float x[3], const float y[3], const float u[3], const float v[3], uint32_t argb, int blend)
 {
 	fprintf(out, "X\t%s\t%g\t%g\t%g\t%g\t%g\t%g\t%g\t%g\t%g\t%g\t%g\t%g\t%08x\t%d\n", texname(t), x[0], y[0], x[1], y[1],

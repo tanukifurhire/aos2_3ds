@@ -77,6 +77,9 @@ typedef struct scene_def {
 	void (*run)(void);         /* blocking scene (owns the loop); init/update/draw unused */
 	uint32_t clear_top;        /* top clear colour, RGBA8 as C2D_Color32 (0 = black) */
 	uint32_t clear_bottom;     /* bottom clear colour (0 = black) */
+	/* optional: true when draw_bottom would draw the same pixels as on the previous frame; the frame then skips
+	 * the bottom screen (no clear, no draw, no transfer: it keeps showing its last image; PERF.md) */
+	bool (*bottom_same)(void);
 } scene_def;
 
 void scene_register(int id, const scene_def *def); /* def must stay valid */

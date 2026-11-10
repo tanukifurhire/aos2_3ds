@@ -1713,6 +1713,38 @@ static aos_dcmd *model(const char *fmt, int frame, int bank, float x, float y, f
 	return c;
 }
 
+/* Front view of a lat-long textured sphere of radius r (world units) spun by `spin` turns about the vertical
+ * axis, as 12 horizontal slices (2 where the visible longitudes wrap): additive (blend 2) draws of the texture's
+ * rows; ow/oh of the texture come from the renderer (src rect in 0..1 here scaled by 512, nt_extension0 size). */
+static void sphere_front(int tex, int bank, float x, float y, float r, float spin, uint32_t rgba)
+{
+	static const float lat[13] = {0.00000f, 0.18643f, 0.26772f, 0.33333f, 0.39183f, 0.44670f, 0.50000f,
+	                              0.55330f, 0.60817f, 0.66667f, 0.73228f, 0.81357f, 1.00000f}; /* acos(t)/pi */
+	static const float half[12] = {0.39965f, 0.66144f, 0.81223f, 0.90906f, 0.96825f, 0.99652f,
+	                               0.99652f, 0.96825f, 0.90906f, 0.81223f, 0.66144f, 0.39965f}; /* sqrt(1-t^2) */
+	const float T = 512.0f; /* nt_extension0 is 512x512 */
+	float h = r * (2.0f / 12.0f);
+	for (int i = 0; i < 12; i++) {
+		float cy = y + r - h * ((float)i + 0.5f), hw = r * half[i];
+		float u0 = spin, u1 = spin + 0.5f; /* visible half of the longitudes, left to right */
+		float split = u1 > 1.0f ? (1.0f - u0) / 0.5f : 1.0f; /* fraction of the width before the wrap */
+		for (int k = 0; k < (split < 1.0f ? 2 : 1); k++) {
+			float a = k == 0 ? 0.0f : split, b = k == 0 ? split : 1.0f; /* slice width fraction */
+			float s0 = k == 0 ? u0 : 0.0f, s1 = k == 0 ? (split < 1.0f ? 1.0f : u1) : u1 - 1.0f;
+			aos_dcmd *c = aos_draw(tex, bank, x - hw + hw * (a + b), cy, 0);
+			c->halfW = hw * (b - a);
+			c->halfH = h * 0.5f;
+			c->hasSrc = 1;
+			c->src[0] = s0 * T;
+			c->src[1] = lat[i] * T;
+			c->src[2] = s1 * T;
+			c->src[3] = lat[i + 1] * T;
+			c->rgba = rgba;
+			c->blend = AOS_BLEND_ADD_ALPHA;
+		}
+	}
+}
+
 /* AIM transform: RotZ(a); RotX(180 deg) when |a| >= pi/2; RotY(180 deg) */
 static void aim_t(aos_dcmd *c, float a)
 {
@@ -1874,17 +1906,18 @@ static void enemy_draw(aos_world *w, aos_enemy *e) /* FUN_005336b0 */
 		tri(e, "nt_fuse%02d", 4, 74.0f, false, false);
 		break;
 	case 9999: { /* 0xf2, all blend 2 */
-		/* frame 0 is a 3-D mesh (FUN_00468d80(256,256,256,30,30)) spun RotY(frame%360 deg);
-		 * frames 1/2 are quads tilted RotX(10 deg) and spun RotY((frame%120)*3 deg).
-		 * APPROXIMATION (the draw API has no 3-D meshes): the mesh is drawn as a quad;
-		 * RotY -> x-scale by cos, RotX -> y-scale by cos (render.md). */
+		/* frame 0 is a 3-D mesh (FUN_00468d80(256,256,256,30,30): a textured sphere) spun
+		 * RotY(frame%360 deg); frames 1/2 are quads tilted RotX(10 deg) and spun RotY((frame%120)*3 deg).
+		 * APPROXIMATION (the draw API has no 3-D meshes): the sphere is drawn as its front view, 12
+		 * horizontal slices whose width follows the silhouette, the texture's latitude rows per slice and
+		 * the visible half of the longitudes scrolling with the spin (it was one 256 quad scaled by the
+		 * spin's cos: a flashing square); its RotZ is dropped. The quads: RotY -> x-scale by cos,
+		 * RotX -> y-scale by cos (render.md). */
 		int bank = team_bank(e->team);
 		float s = e->scale[0];
-		float ry0 = aos_cos((float)(w->frame % 360) * (PI / 180.0f));
-		aos_dcmd *c = model("nt_extension%d", 0, bank, e->pos[0], e->pos[1], 256.0f, s * ry0, s);
-		c->rgba = argb(z, 0.25f, 0.25f, 0.25f);
-		c->rotZ = aos_rad2bam(e->angle);
-		c->blend = AOS_BLEND_ADD_ALPHA;
+		sphere_front(aos_texf("nt_extension%d", 0), bank, e->pos[0], e->pos[1], 128.0f * s,
+		             (float)(w->frame % 360) / 360.0f, argb(z, 0.25f, 0.25f, 0.25f));
+		aos_dcmd *c;
 		float ry = aos_cos((float)((w->frame % 0x78) * 3) * (PI / 180.0f)), rx = aos_cos(10.0f * (PI / 180.0f));
 		for (int f = 1; f <= 2; f++)
 			for (int k = 0; k < 2; k++) {

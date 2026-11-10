@@ -113,20 +113,6 @@ static void ring_tables(void)
 	ring_ready = true;
 }
 
-static void ring_tri(const world_xf *xf, float px, float py, int a0, float r0, uint32_t c0, int a1, float r1,
-                     uint32_t c1, int a2, float r2, uint32_t c2)
-{
-	float wx[3] = {ring_c[a0] * r0 + px, ring_c[a1] * r1 + px, ring_c[a2] * r2 + px};
-	float wy[3] = {ring_s[a0] * r0 + py, ring_s[a1] * r1 + py, ring_s[a2] * r2 + py};
-	float x[3], y[3];
-	for (int k = 0; k < 3; k++) {
-		x[k] = xf->W2 + (wx[k] - xf->cam->camX) / xf->cam->zoomDiv;
-		y[k] = xf->H2 - (wy[k] - xf->cam->camY) / xf->cam->zoomDiv;
-	}
-	uint32_t c[3] = {c0, c1, c2};
-	hg_tri(x, y, c, 1);
-}
-
 static void weapon_rings(const aos_world *w, const hud_camera *cam)
 {
 	world_xf xf = {cam, (float)(S_->W / 2), (float)(S_->H / 2)};
@@ -155,20 +141,31 @@ static void weapon_rings(const aos_world *w, const hud_camera *cam)
 		}
 		float px = p->x, py = p->y;
 		int nA = (int)(37.0f * p->gaugeA), nB = (int)(37.0f * p->gaugeB); /* DAT_0081c6f8 */
+		/* The ring points (73 angles x 4 radii) in screen space, each computed once with the per-vertex
+		 * expressions the triangles used; the PC's triangle pairs (a0 r, a1 r, a1 r') (a0 r, a1 r', a0 r') go out as hg_tri2. */
+		const float rad[4] = {R1 + f9, R1, R2 - f9, R2};
+		float sx[4][73], sy[4][73];
+		for (int k = 0; k < 4; k++)
+			for (int j = 0; j <= 72; j++) {
+				float wx = ring_c[j] * rad[k] + px, wy = ring_s[j] * rad[k] + py;
+				sx[k][j] = xf.W2 + (wx - xf.cam->camX) / xf.cam->zoomDiv;
+				sy[k][j] = xf.H2 - (wy - xf.cam->camY) / xf.cam->zoomDiv;
+			}
 		for (int half = 0; half < 2; half++) {
 			uint32_t edge = half ? eB : eA, in = ia << 24 | (half ? eB : eA), fill = half ? fB : fA;
 			int n = half ? nB : nA;
+			const uint32_t cOut[4] = {edge, edge, in, in}, cDark[4] = {0x80000000, 0x80000000, 0x80000000, 0x80000000};
+			const uint32_t cFill[4] = {fill, fill, fill, fill};
 			for (int j = half * 36; j < half * 36 + 36; j++) {
 				int a0 = j, a1 = j + 1; /* angles (float)j / 72 * 2pi: ring_c/ring_s */
-				ring_tri(&xf, px, py, a0, R1 + f9, edge, a1, R1 + f9, edge, a1, R1, in);
-				ring_tri(&xf, px, py, a0, R1 + f9, edge, a1, R1, in, a0, R1, in);
-				ring_tri(&xf, px, py, a0, R2 - f9, edge, a1, R2 - f9, edge, a1, R2, in);
-				ring_tri(&xf, px, py, a0, R2 - f9, edge, a1, R2, in, a0, R2, in);
-				ring_tri(&xf, px, py, a0, R1, 0x80000000, a1, R1, 0x80000000, a1, R2, 0x80000000);
-				ring_tri(&xf, px, py, a0, R1, 0x80000000, a1, R2, 0x80000000, a0, R2, 0x80000000);
-				if (j - half * 36 < n) {
-					ring_tri(&xf, px, py, a0, R1, fill, a1, R1, fill, a1, R2, fill);
-					ring_tri(&xf, px, py, a0, R1, fill, a1, R2, fill, a0, R2, fill);
+				/* (r = outer radius of the pair, r' = inner): R1+f9 / R1, R2-f9 / R2, R1 / R2 */
+				static const int pr[4][2] = {{0, 1}, {2, 3}, {1, 3}, {1, 3}};
+				int npairs = j - half * 36 < n ? 4 : 3;
+				for (int q = 0; q < npairs; q++) {
+					int r0 = pr[q][0], r1 = pr[q][1];
+					float x[4] = {sx[r0][a0], sx[r0][a1], sx[r1][a1], sx[r1][a0]};
+					float y[4] = {sy[r0][a0], sy[r0][a1], sy[r1][a1], sy[r1][a0]};
+					hg_tri2(x, y, q < 2 ? cOut : q == 2 ? cDark : cFill, 1);
 				}
 			}
 		}
@@ -214,12 +211,10 @@ static void hyper_arcs(const aos_player *p, float cx3, float cy3)
 			float ox0 = c0 * rout + cx3, oy0 = s0 * rout + cy3;
 			float ix1 = c1 * rin + cx3, iy1 = s1 * rin + cy3;
 			float ox1 = c1 * rout + cx3, oy1 = s1 * rout + cy3;
-			float xa[3] = {W2 + ix0, W2 + ox0, W2 + ix1}, ya[3] = {H2 - iy0, H2 - oy0, H2 - iy1};
-			float ua[3] = {0, 256, 256}, va[3] = {t0, t0, t1};
-			hg_tri_tex(HT_HYPER_B + k, xa, ya, ua, va, 0xffffffff, 1);
-			float xb[3] = {W2 + ix1, W2 + ox0, W2 + ox1}, yb[3] = {H2 - iy1, H2 - oy0, H2 - oy1};
-			float ub[3] = {0, 256, 256}, vb[3] = {t1, t0, t1};
-			hg_tri_tex(HT_HYPER_B + k, xb, yb, ub, vb, 0xffffffff, 1);
+			/* triangles (i0 o0 i1) (i1 o0 o1), uv (0,t0) (256,t0) (256,t1) / (0,t1) (256,t0) (256,t1) */
+			float xq[4] = {W2 + ix0, W2 + ox0, W2 + ix1, W2 + ox1}, yq[4] = {H2 - iy0, H2 - oy0, H2 - iy1, H2 - oy1};
+			float uq[4] = {0, 256, 256, 256}, vq[4] = {t0, t0, t1, t1};
+			hg_tri_tex2(HT_HYPER_B + k, xq, yq, uq, vq, 0xffffffff, 1);
 		}
 	}
 }

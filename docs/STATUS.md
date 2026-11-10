@@ -45,6 +45,10 @@
 - Emulator (Old 3DS mode): selects/result at 60 FPS; full runs verified: ArcSelect → arcade fight → loss →
   result → continue → same opponent; pause → Exit → ArcSelect; VS Select → stage → VS → battle → result → VS.
   Evidence: build/preview/modes_B_*.png.
+- Polish pass (2026-11-10, modes.md §B.8 "Polish pass"): select backdrop texture (bgMdlAdd sl_bgp), stage depth
+  reset before 3D stages drawn over 2D (select planet/ring, VS-phase stage), VS player labels, result score
+  table, pause overlay depth. Scripted emulator runs: `sdmc:/aos2_keys.txt` (profile builds, §D.7.1);
+  menu → Match → VS → battle → pause → result → VS verified with it. Evidence: build/preview/polish_*.png.
 
 ## Arcade/story flow, staff roll, ranking, save (Part D of docs/re/modes.md, 2026-11-10)
 - `src/app/modes_flow.[ch]`: run state + app-wide cosmetic MT (shared with the "????" BGM pick) + progress save;
@@ -75,17 +79,20 @@
 ## Known gaps / next steps
 1. Frame-by-frame validation against the PC game (record PC inputs/replays, compare).
 2. Stages: Dust Storm / Canyon of Wind / Guardian's Chamber cost 2.3–4.8 ms on Old 3DS (proposals in stages.md §5), br reflection clip planes omitted; story/arcade modes (Parts B–D), result screen; HUD heat label is illegible at 400×240 (hud.md §6).
-3. 3DS performance: audited 2026-11-10 (docs/PERF.md): sim tick <0.5 ms avg / ~2 ms worst, compact rollback
-   snapshots (~20-190 KB instead of 816 KB), BGM decode off the game core, linear-memory worst case ~5 MB free.
-   Emulator (Old 3DS mode) holds 60 FPS except Tsih/Nath-heavy hyper scenes on Dust Storm (~52-55 FPS);
-   still not measured on real hardware (`PROFILE=1 ./build.sh`, sdmc:/aos2_bench.txt).
+3. 3DS performance: audited 2026-11-10 (docs/PERF.md): sim tick <0.5 ms avg / ~2 ms worst (Tsih up to 12.6 ms),
+   compact rollback snapshots, BGM decode off the game core. Render pipeline (PERF.md "Render pipeline"): own 2D
+   batcher with one premultiplied blend state for alpha + additive sprites (`src/platform/sprbatch.c`), HUD gauges as
+   single quads, cached bottom panel; atlases at ¼ (big lasers ½), stage textures ½, no character mipmaps, every
+   match's sprite atlases in VRAM. Emulator (Old 3DS mode): Tsih ×2 cpu 10.7 → 6.7 ms avg, frames over budget
+   19 % → 1.3 %; every other benchmark row 0-0.1 %; linear free at match start ≥ 13.9 MB (was 2.3 MB worst case).
+   Still not measured on real hardware (`PROFILE=1 ./build.sh`, sdmc:/aos2_bench.txt).
 4. Netplay on real hardware. (Round flow FUN_00608a00 now runs inside `aos_tick`, src/sim/flow.c.)
 5. Test in the user's citra fork (never built here; Azahar used instead).
 6. Sprites are small on 400×240 (faithful 0.4× of the 800×600 view) — `SCREEN_SCALE` in render.c.
-   Sprite filtering (2026-11-10): atlas pages are sampled bilinearly (were point-sampled), character atlases
-   (charaXxxA/B/C) carry mipmaps (LOD bias −0.5) so minified rotating projectiles are anti-aliased; draws clamp UVs
-   to the frame's texel centres (no atlas bleed). Cost: +1/3 character-atlas memory (≈ −2.9 MB linear free for
-   Suguri vs Sora; Suguri mirror worst case ≈ 2.5 MB free, not re-measured on all stages), no measurable GPU time.
+   Sprite filtering (2026-11-10): atlas pages are sampled bilinearly (were point-sampled); draws clamp UVs to the
+   frame's texel centres (no atlas bleed). Character atlases carried mipmaps against shimmering rotated projectiles;
+   since the ¼-scale atlases (PERF.md texture plan) sprites are ~1:1 on screen and the mipmaps are gone (missile
+   volley check: build/preview/perf2_missiles.png). Atlases are stored premultiplied (aos2pack -pma).
    Fixed with it: rotated-quad off-screen cull (long Accel Burst beams vanished), Accel Burst wall flare uses
    `sg_slash` (0x141), not the beam texture. Profile builds can dump frames: `sdmc:/aos2_cap.txt` = "first count"
    → `sdmc:/cap/f<frame>.raw` (raw tiled RGBA8 target; prof.c). Evidence: build/preview/*_before_after.png.
