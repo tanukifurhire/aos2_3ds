@@ -11,6 +11,8 @@
 #include <string.h>
 
 #include "../platform/panel.h"
+#include "../platform/render.h"
+#include <sys/stat.h>
 #include "../platform/spritebank.h"
 #include "audio.h"
 #include "../sim/draw.h"
@@ -68,8 +70,52 @@ void prof_begin(int s) { t0[s] = svcGetSystemTick(); }
 
 static u64 wait_this_frame;
 
+/* Frame capture: if sdmc:/aos2_cap.txt holds "first count", the top-screen
+ * frames of world frames first..first+count-1 are written to
+ * sdmc:/cap/f<frame>.raw (the render target's raw colour buffer: 240x400
+ * RGBA8, 8x8 Morton tiles, rotated; tools/capconv.py makes PNGs). Taken after C3D_FrameBegin,
+ * when the previous frame is complete and the target not yet cleared. */
+static int cap_first = -1, cap_count, cap_pending = -1;
+static bool cap_on;
+
+static void cap_init(void)
+{
+	if (cap_first != -1)
+		return;
+	cap_first = -2;
+	FILE *f = fopen("sdmc:/aos2_cap.txt", "r");
+	if (!f)
+		return;
+	if (fscanf(f, "%d %d", &cap_first, &cap_count) != 2 || cap_first < 0)
+		cap_first = -2;
+	fclose(f);
+	if (cap_first >= 0) {
+		mkdir("sdmc:/cap", 0777);
+		cap_on = true;
+	}
+}
+
+static void cap_grab(void)
+{
+	C3D_RenderTarget *t = render_last_target();
+	if (cap_pending < 0 || !cap_on || !t)
+		return;
+	size_t n = (size_t)t->frameBuf.width * t->frameBuf.height * 4;
+	GSPGPU_InvalidateDataCache(t->frameBuf.colorBuf, n);
+	char path[48];
+	snprintf(path, sizeof path, "sdmc:/cap/f%06d.raw", cap_pending);
+	FILE *f = fopen(path, "wb");
+	if (f) {
+		fwrite(t->frameBuf.colorBuf, 1, n, f);
+		fclose(f);
+	}
+	cap_pending = -1;
+}
+
 void prof_end(int s)
 {
+	if (s == PROF_WAIT)
+		cap_grab();
 	u64 d = svcGetSystemTick() - t0[s];
 	if (s == PROF_WAIT)
 		wait_this_frame += d;
@@ -112,6 +158,9 @@ static void mem_sample(void)
 void prof_frame_done(const struct aos_world *cw)
 {
 	const aos_world *w = cw;
+	cap_init();
+	if (cap_first >= 0 && (int)w->frame >= cap_first && (int)w->frame < cap_first + cap_count)
+		cap_pending = (int)w->frame;
 	u64 cpu = svcGetSystemTick() - frame_t0 - wait_this_frame;
 	wait_this_frame = 0;
 	acc[PROF_CPU] += cpu;

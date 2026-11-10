@@ -199,6 +199,36 @@ static void start_banner_tick(aos_world *w) /* FUN_00617a60 */
 	f->stT++;
 }
 
+static void round_record(const aos_world *w, int i, aos_round_rec *r) /* FUN_0061ac80 */
+{
+	int winner = aos_hp_winner(w);
+	int32_t bonus = 0;
+	if (i == winner) {
+		float t = (float)(180 - w->frame / 60) / 120.0f; /* DAT_00814174; single precision (0x61ad3a) */
+		t = t * 10000.0f;                                /* _DAT_00853ba0 (mulss) */
+		bonus = (int32_t)t;                              /* cvttss2si */
+		if (10000 < bonus)
+			bonus = 10000;
+		if (bonus < 0)
+			bonus = 0;
+	}
+	r->timeBonus = bonus;
+	r->seconds = w->frame / 60;
+	r->hp = w->p[i].hp;
+	r->comboDmg = w->p[i].comboBestDmg;
+	r->comboHits = w->p[i].comboBestHits;
+	r->score = r->hp + r->comboDmg + bonus;
+}
+
+static void round_records(aos_world *w) /* FUN_00619cb0: one record per player into 0x885a74 + side*0xc */
+{
+	if (w->nRoundRecs >= AOS_MAX_ROUND_RECS) /* port: fixed capacity (unreachable with roundsToWin <= 3) */
+		return;
+	for (int i = 0; i < 2; i++)
+		round_record(w, i, &w->roundRec[w->nRoundRecs][i]);
+	w->nRoundRecs++;
+}
+
 static void end_banner_tick(aos_world *w) /* FUN_00608a00 */
 {
 	aos_flow *f = &w->flow;
@@ -213,11 +243,14 @@ static void end_banner_tick(aos_world *w) /* FUN_00608a00 */
 		if (f->enAlpha < 0.0f)
 			f->enAlpha = 0;
 		if (0.0f < f->enAlpha || f->enT < 0x12d || f->enNext) {
-			if (0x15d < f->enT && f->enNext)
-				f->nextRound = 1; /* replay bookkeeping + FUN_00619cb0 (result records) not ported */
+			if (0x15d < f->enT && f->enNext) {
+				f->nextRound = 1; /* replay bookkeeping (FUN_005f88f0) not ported */
+				round_records(w); /* FUN_00619cb0 */
+			}
 		} else {
 			if (aos_match_decided(w)) {
 				/* FUN_00619cb0 (results), FUN_00561fc0(0x12), FUN_004bee00 (BGM stop: app side) */
+				round_records(w);
 				aos_screen_fade(w, 0x12);
 				w->roundEndBanner = 0;
 				return;

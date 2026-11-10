@@ -253,6 +253,7 @@ int main(int argc, char **argv)
 	m.colors[1] = m.ids[0] == m.ids[1];
 	m.roundSeconds = 30; /* short rounds so round/match transitions get rolled back too */
 	m.roundsToWin = 2;
+	m.handicap[0] = m.handicap[1] = AOS_HANDICAP_DEFAULT;
 	ref_seed = 777;
 	printf("sizeof(aos_world) %zu, sizeof(rb_game) %zu, fingerprint %08x\n", sizeof(aos_world),
 	       sizeof(rb_game), rb_sim_fingerprint());
@@ -289,6 +290,8 @@ int main(int argc, char **argv)
 		st.stage = 16;
 		rb_match_from_picks(&st.match, &h, &c, 180, 2);
 		CHECK(st.match.colors[1] != st.match.colors[0], "palette clash not resolved");
+		CHECK(st.match.handicap[0] == AOS_HANDICAP_DEFAULT && st.match.handicap[1] == AOS_HANDICAP_DEFAULT, "default handicap");
+		st.match.handicap[1] = 4;
 		n = rb_encode_start(&st, buf, sizeof buf);
 		CHECK(n && rb_decode_start(buf, n, &st2) && !memcmp(&st.match, &st2.match, sizeof st.match) &&
 		      st2.nonce == 0xdeadbeef && st2.input_delay == 2 && st2.max_rollback == 8 && st2.bgm == 37 && st2.stage == 16, "start");

@@ -208,7 +208,12 @@ static void draw_cmd(const aos_dcmd *c, float camX, float camY, float zoomDiv)
 	float pw = wW / zoomDiv, ph = wH / zoomDiv;
 	if (fabsf(pw) < 0.5f || fabsf(ph) < 0.5f)
 		return;
-	if (sx + fabsf(pw) < -64 || sx - fabsf(pw) > SCR_W + 64 || sy + fabsf(ph) < -64 || sy - fabsf(ph) > SCR_H + 64)
+	/* off-screen cull; a rotated quad reaches up to |pw|/2 + |ph|/2 from its centre on either axis
+	 * (the axis-aligned test dropped long rotated beams whose centre is off-screen, e.g. Accel Burst) */
+	float ex = fabsf(pw), ey = fabsf(ph);
+	if (c->rotZ)
+		ex = ey = ex + ey;
+	if (sx + ex < -64 || sx - ex > SCR_W + 64 || sy + ey < -64 || sy - ey > SCR_H + 64)
 		return;
 	set_blend(c->blend);
 	C2D_ImageTint tint;
@@ -224,6 +229,7 @@ static void draw_cmd(const aos_dcmd *c, float camX, float camY, float zoomDiv)
 		sub = *img.subtex;
 		img.subtex = &sub;
 	}
+	spritebank_clamp_sub(&sub, fr->img.subtex, fr->img.tex);
 	if (qw < 0) {
 		float t = sub.left;
 		sub.left = sub.right;
@@ -280,8 +286,12 @@ static void arena_ring(const aos_world *w, float zoomDiv)
 	}
 }
 
+static C3D_RenderTarget *last_target;
+C3D_RenderTarget *render_last_target(void) { return last_target; }
+
 void render_world(C3D_RenderTarget *top, const aos_world *cw)
 {
+	last_target = top;
 	aos_world *w = (aos_world *)cw; /* draw handlers take a non-const world but don't mutate sim state */
 	float Z = w->obj.zoomView > 0 ? w->obj.zoomView : (w->obj.zoom > 0 ? w->obj.zoom : 1.0f);
 	float zoomDiv = Z / SCREEN_SCALE;

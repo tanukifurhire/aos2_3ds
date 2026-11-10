@@ -265,7 +265,7 @@ static void test_random_determinism(void)
 				if (((s >> 8) & 3) == 0)
 					m[i] ^= (uint16_t)(1u << ((s >> 12) % 10));
 				w->p[i].hyper = 3.0f;
-				w->p[i].hp = 4500;
+				w->p[i].hp = w->p[i].maxHp;
 			}
 			tick(w, m[0], m[1], 1);
 			if (!isfinite(w->p[0].x) || !isfinite(w->p[1].x))

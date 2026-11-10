@@ -22,6 +22,11 @@ if [ "${SKIP_ASSETS:-0}" != 1 ]; then
 	[ -d "$ROOT/extracted/bgm" ] || (cd tools/aos2extract && ./aos2extract.exe -game "$GAME" -out "$ROOT/extracted")
 	(cd tools/aos2pack && go build -o aos2pack.exe . && ./aos2pack.exe -assets "$ROOT/extracted" -out "$OUT/romfs" -gfx "$OUT/gfx" -bgm "$ROOT/docs/re/bgm_table.tsv")
 	./tools/convert_pages.sh
+	# --- story conversations (Part C; docs/FORMATS.md "Story conversations"): exe resources -> extracted/script_res,
+	# scripts + story texts + portraits -> romfs/story
+	[ -d "$ROOT/extracted/script_res" ] || (cd tools/aos2extract && go build -o aos2extract.exe . && ./aos2extract.exe -game "$GAME" -out "$ROOT/extracted" -conv-only)
+	(cd tools/aos2story && go build -o aos2story.exe .) && ./tools/aos2story/aos2story.exe -assets "$ROOT/extracted" -romfs "$OUT/romfs" -work "$OUT/storygfx" -tex3ds "$TOOLS/tex3ds.exe"
+	# --- end story conversations
 	# stage backgrounds (docs/re/stages.md): .x meshes, 3dtex.dat, bgMdl textures, height maps
 	(cd tools/aos2mesh && go build -o aos2mesh.exe .) && ./tools/aos2mesh/aos2mesh.exe -game "$GAME" 		-tex "$ROOT/extracted/texture" -romfs "$OUT/romfs" -host "$OUT/stagehost" -tex3ds "$TOOLS/tex3ds.exe" -work "$OUT/stagetex"
 	"$TOOLS/smdhtool.exe" --create "AoS2 3DS input lab" "Acceleration of SUGURI 2 port - WIP" "personal research build" \
@@ -38,7 +43,7 @@ PROF=""
 [ "${PROFILE:-0}" = 1 ] && PROF="-DAOS_PROFILE" # on-device profiler + sdmc:/aos2_bench.txt runner (src/app/prof.h)
 CFLAGS="-g -O2 $PROF -Wall -Wextra -Werror -Wno-stringop-overread -std=gnu11 -ffunction-sections $ARCH -D__3DS__ \
  -I$DEVKITPRO/libctru/include -I$DEVKITPRO/portlibs/3ds/include -I$OUT"
-SRCS="src/net/rollback.c src/net/uds_link.c src/app/netplay.c src/input/aos_input.c src/app/wav.c src/app/audio.c src/app/music.c src/app/lab.c src/app/prof.c src/app/main.c src/platform/spritebank.c src/platform/bgm.c src/platform/render.c src/platform/stage.c $(echo src/stage/*.c) src/platform/hud.c src/platform/hud_c2d.c src/platform/panel.c $(echo src/sim/*.c src/sim/chars/*.c)"
+SRCS="src/net/rollback.c src/net/uds_link.c src/app/netplay.c src/input/aos_input.c src/app/wav.c src/app/audio.c src/app/music.c src/app/lab.c src/app/prof.c src/app/main.c src/app/scene.c src/app/scene_core.c src/app/strings.c src/app/bmfont.c src/app/text_c2d.c src/app/ui.c src/app/menu.c src/app/menu_draw.c src/platform/spritebank.c src/platform/bgm.c src/platform/render.c src/platform/stage.c $(echo src/stage/*.c) src/platform/hud.c src/platform/hud_c2d.c src/platform/panel.c $(echo src/sim/*.c src/sim/chars/*.c)"
 OBJS=""
 for s in $SRCS; do
 	o="$OUT/obj/$(echo "$s" | tr / _ | sed 's/\.c$/.o/')"

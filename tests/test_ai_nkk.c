@@ -87,7 +87,7 @@ int main(int argc, char **argv)
 				bool det = !memcmp(&A, &B, sizeof A);
 				bool rb = !memcmp(&A, &S, sizeof A);
 				bool sane = isfinite(A.w.p[0].x) && isfinite(A.w.p[1].x);
-				bool acts = g_btn[0] > 0 && g_btn[1] > 0 && (g_minhp[0] < 4500 || g_minhp[1] < 4500);
+				bool acts = g_btn[0] > 0 && g_btn[1] > 0 && (g_minhp[0] < A.w.p[0].maxHp || g_minhp[1] < A.w.p[1].maxHp);
 				printf("%-6s vs %-6s diff %d: presses %5ld/%5ld minhp %5d/%5d KOs %ld/%ld  det %s rollback %s%s\n",
 				       nm[i], nm[j], d, g_btn[0], g_btn[1], g_minhp[0], g_minhp[1], g_kos[0], g_kos[1],
 				       det ? "ok" : "FAIL", rb ? "ok" : "FAIL", acts ? "" : "  (AI idle?)");

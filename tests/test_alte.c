@@ -532,7 +532,7 @@ static void test_states_and_random(void)
 					M[i] ^= (uint16_t)(1u << ((s >> 12) % 10));
 				if (f % 600 == 0)
 					w->p[i].hyper = 3.0f;
-				w->p[i].hp = 4500;
+				w->p[i].hp = w->p[i].maxHp;
 			}
 			tick(w);
 			draw_all(w);

@@ -68,3 +68,20 @@ for t in "" "-DAOS_EFFECT_COMPACT_AT=64 -DAOS_BEAM_COMPACT_AT=16"; do
   src/sim/*.c src/sim/chars/*.c tests/test_effect_pool.c -lm -o build/tests/test_effect_pool.exe
 build/tests/test_effect_pool.exe
 done
+# story conversations: 56 scripts x 8 languages through loader, wrap and scene (src/modes/conv.c)
+(cd tools/aos2story && go test ./...)
+"$ZIG" cc -std=gnu11 -Wall -Wextra -Werror -O1 -g -fsanitize=undefined -fno-sanitize-recover=all \
+  src/modes/conv.c src/app/bmfont.c tests/test_conv.c -lm -o build/tests/test_conv.exe
+build/tests/test_conv.exe
+# arcade/story ladders vs docs/re/modes_ladders.tsv, round records/score, ranking, unlocks, save (src/modes)
+"$ZIG" cc -std=gnu11 -Wall -Wextra -Werror -O1 -g -fsanitize=undefined -fno-sanitize-recover=all \
+  src/modes/ladder.c src/modes/score.c src/modes/save.c src/sim/*.c src/sim/chars/*.c tests/test_modes.c -lm \
+  -o build/tests/test_modes.exe
+build/tests/test_modes.exe docs/re/modes_ladders.tsv build/tests
+# menu text (key-value scripts, BMFont parser/layout/wrap), scene core, Logo/Menu state machines (src/app, Part A)
+"$ZIG" cc -std=gnu11 -Wall -Wextra -Werror -O1 -g -fsanitize=undefined -fno-sanitize-recover=all \
+  src/app/strings.c src/app/bmfont.c src/app/scene_core.c tests/test_text.c -lm -o build/tests/test_text.exe
+build/tests/test_text.exe
+"$ZIG" cc -std=gnu11 -Wall -Wextra -Werror -O1 -g -fsanitize=undefined -fno-sanitize-recover=all \
+  src/app/menu.c src/app/strings.c src/app/bmfont.c src/app/scene_core.c tests/test_menu.c -lm -o build/tests/test_menu.exe
+build/tests/test_menu.exe

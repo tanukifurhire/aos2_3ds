@@ -76,6 +76,17 @@ func main() {
 		total += n
 		fmt.Printf("%-16s %4d frames  %d page(s)\n", d.Name(), n, pages)
 	}
+	if len(want) == 0 || want["fonts"] {
+		if err := packFonts(*assets, *out, *gfx); err != nil {
+			log.Fatal(err)
+		}
+		if err := packMenuTextures(*assets, *gfx); err != nil {
+			log.Fatal(err)
+		}
+		if err := copyScripts(*assets, *out); err != nil {
+			log.Fatal(err)
+		}
+	}
 	if err := copySounds(*assets, *out); err != nil {
 		log.Fatal(err)
 	}
@@ -163,7 +174,11 @@ func packFolder(dir, folder, gfx, romfs string, scale float64) (int, int, error)
 			fr.idx = i
 			lines = append(lines, fr.name+".png")
 		}
-		t3s := "--atlas -f etc1a4 -q medium -z auto\n" + strings.Join(lines, "\n") + "\n"
+		opts := "--atlas -f etc1a4 -q medium -z auto"
+		if mipmapped(folder) {
+			opts = "--atlas --mipmap box -f etc1a4 -q medium -z auto"
+		}
+		t3s := opts + "\n" + strings.Join(lines, "\n") + "\n"
 		if err := os.WriteFile(filepath.Join(gfx, folder, fmt.Sprintf("page%d.t3s", p)), []byte(t3s), 0o644); err != nil {
 			return 0, 0, err
 		}
@@ -180,6 +195,22 @@ func packFolder(dir, folder, gfx, romfs string, scale float64) (int, int, error)
 		return 0, 0, err
 	}
 	return len(frames), len(members), nil
+}
+
+// mipmapped reports whether a folder's atlas pages get a mipmap chain: the
+// per-player character folders (charaXxxA/B/C). Their projectiles and
+// effects are drawn 1.5-3x minified at 400x240 (64-texel missiles are ~20 px
+// on screen) and only mipmaps keep the edges anti-aliased while they rotate;
+// bilinear alone barely differs from point sampling there. Costs +1/3 of the
+// folder's texture memory (<= 1.5 MB per player, linear heap). The common
+// folders stay without mipmaps: they live in VRAM, which has no room left.
+func mipmapped(folder string) bool {
+	switch folder {
+	case "charaCmnA", "charaAdd", "charaHide", "charaRndm":
+		return false
+	}
+	last := folder[len(folder)-1]
+	return strings.HasPrefix(folder, "chara") && (last == 'A' || last == 'B' || last == 'C')
 }
 
 func scalePNG(fr *frame, s float64) error {

@@ -1348,11 +1348,12 @@ static void laser_draw(aos_world *w, aos_laser *l)
 		if (t > 0x50) hh = ((float)(100 - t) / 20.0f) * hh;
 		int y0 = ((t / 2) % 3) * 0x3c + 0xa0;
 		blit(tex, bank, c, len * 0.5f, hh, l->angle, 0xa0, 0xffffff, AOS_BLEND_ADD_ALPHA, 0, y0, sx1, y0 + 0x3b);
-		if (l->id == 200 && n > 0) { /* wall flare at the last segment (literal reads seg[n-1]) */
+		if (l->id == 200 && n > 0) { /* wall flare at the last segment (literal reads seg[n-1]); 2D sprite
+		                               * 0x141 sg_slash, not the beam texture (imul eax,edx,0x141 @0x629914) */
 			float r = (float)((t + 5) * ((t / 2) % 2 == 0 ? 0xe : 0xc));
 			if (t < 0xf) r *= 0.25f;
 			if (t > 0x50) r = ((float)(100 - t) / 20.0f) * r;
-			blit(tex, bank, l->seg[n - 1].pos, r, r, l->angle, 0xff, 0xffffff, AOS_BLEND_ADD_ALPHA, 0, 0x80, 0x7f, 0xff);
+			blit(aos_tex("sg_slash"), bank, l->seg[n - 1].pos, r, r, l->angle, 0xff, 0xffffff, AOS_BLEND_ADD_ALPHA, 0, 0x80, 0x7f, 0xff);
 		}
 	} else if (l->id == 0xd2) {
 		float c[3] = {aos_cos(l->angle) * 1000.0f + l->origin[0], aos_sin(l->angle) * 1000.0f + l->origin[1], 0}; /* DAT_00814408 */

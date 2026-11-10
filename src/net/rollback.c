@@ -104,7 +104,17 @@ struct rb_session {
 void rb_game_init(rb_game *g, const rb_match *m)
 {
 	memset(g, 0, sizeof *g); /* deterministic padding bytes too (hashed) */
-	aos_match_init(&g->w, m->ids, m->schemes, m->colors, m->roundSeconds, m->roundsToWin);
+	aos_match_params mp;
+	aos_match_params_default(&mp);
+	for (int i = 0; i < 2; i++) {
+		mp.ids[i] = m->ids[i];
+		mp.schemes[i] = m->schemes[i];
+		mp.colors[i] = m->colors[i];
+		mp.handicap[i] = m->handicap[i];
+	}
+	mp.roundSeconds = m->roundSeconds;
+	mp.roundsToWin = m->roundsToWin;
+	aos_match_init_ex(&g->w, &mp);
 	g->lastMatchWinner = -1;
 	g->matchEndFrame = -1;
 }
@@ -871,10 +881,10 @@ bool rb_decode_hello(const uint8_t *buf, size_t len, rb_hello *h)
 }
 
 /* START: 0 'S' 1 proto 2 u16 gamever 4 u32 fp 8 i32[8] match 40 u8 delay 41 u8 maxrb 42 u32 nonce
- *        46 u8 bgm 47 u8 stage */
+ *        46 u8 bgm 47 u8 stage 48 u8 handicap P1 49 u8 handicap P2 (proto 4) */
 size_t rb_encode_start(const rb_start *st, uint8_t *buf, size_t cap)
 {
-	if (cap < 48)
+	if (cap < 50)
 		return 0;
 	buf[0] = RB_PKT_START;
 	buf[1] = st->proto;
@@ -889,12 +899,14 @@ size_t rb_encode_start(const rb_start *st, uint8_t *buf, size_t cap)
 	put32(buf + 42, st->nonce);
 	buf[46] = st->bgm;
 	buf[47] = st->stage;
-	return 48;
+	buf[48] = (uint8_t)m->handicap[0];
+	buf[49] = (uint8_t)m->handicap[1];
+	return 50;
 }
 
 bool rb_decode_start(const uint8_t *buf, size_t len, rb_start *st)
 {
-	if (len < 48 || buf[0] != RB_PKT_START)
+	if (len < 50 || buf[0] != RB_PKT_START)
 		return false;
 	st->proto = buf[1];
 	st->game_version = get16(buf + 2);
@@ -912,6 +924,8 @@ bool rb_decode_start(const uint8_t *buf, size_t len, rb_start *st)
 	st->nonce = get32(buf + 42);
 	st->bgm = buf[46];
 	st->stage = buf[47];
+	m->handicap[0] = buf[48];
+	m->handicap[1] = buf[49];
 	return true;
 }
 
@@ -947,4 +961,5 @@ void rb_match_from_picks(rb_match *m, const rb_hello *host, const rb_hello *clie
 		m->colors[1] = m->colors[0] == 0 ? 1 : 0;
 	m->roundSeconds = roundSeconds;
 	m->roundsToWin = roundsToWin;
+	m->handicap[0] = m->handicap[1] = AOS_HANDICAP_DEFAULT; /* every PC menu path sets 2 (modes.md §0.5) */
 }

@@ -29,7 +29,7 @@
 
 #include "../sim/sim.h"
 
-#define RB_PROTO_VERSION 3 /* 2: START carries the battle BGM id; 3: and the stage id */
+#define RB_PROTO_VERSION 4 /* 2: START carries the battle BGM id; 3: and the stage id; 4: and the HP handicaps */
 #define RB_MAX_ROLLBACK 8     /* hard cap on predicted frames (snapshot ring = this + 1) */
 #define RB_MAX_DELAY 8
 #define RB_MAX_PACKET 160     /* largest packet rb_build_packet produces */
@@ -41,6 +41,7 @@ enum { RB_PKT_INPUT = 'I', RB_PKT_HELLO = 'H', RB_PKT_START = 'S', RB_PKT_START_
 typedef struct {
 	int32_t ids[2], schemes[2], colors[2];
 	int32_t roundSeconds, roundsToWin;
+	int32_t handicap[2];  /* HP table index per player (aos_match_params.handicap; AOS_HANDICAP_DEFAULT) */
 } rb_match;
 
 /* Everything that is rolled back: the world plus the round/match flow that the

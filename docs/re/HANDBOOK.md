@@ -15,6 +15,7 @@ Paths are relative to `aos2_3ds/tools/re/`.
 | `./xref.exe "$EXE" rd <hexva> <n>` | Read n dwords at a VA as hex/int/float/double. Constants like `DAT_008145f0` → `rd 8145f0 1`. BSS prints "(unmapped or bss)" = runtime-initialised; find the code that writes it. |
 | `./xref.exe "$EXE" refs <hexva>` | Code locations whose bytes contain that imm32 (finds data/func-pointer uses). |
 | `./xref.exe "$EXE" dis <hexva> <n>` | Raw disassembly (when the decompiler output is unclear, e.g. x87 float ops). |
+| `./jtscan.exe [-only list] "$EXE" dec/all.c` | Every switch jump table of a function (cases → targets, first instructions). **Run it on any function you port that has a switch**: Ghidra sometimes collapses a switch into `x < N ? c0 : dflt` (FUN_0069cc40 HP). `-tsv` = whole-exe summary (`jtscan/jumptables.tsv`), `-fcmp` = float-compare idioms. See `../../docs/re/switch_audit.md`. |
 | `powershell -File ghidra.ps1 decomp <listfile> <outfile>` | Re-decompile specific functions (list = hex addresses, one per line). Slow (~1 min startup) — prefer the corpus. |
 | `out/functions.tsv`, `out/strings.tsv` | Function index; strings with referencing functions. |
 | `dec/registry.c` | `FUN_0049ae40`: registers every per-state / per-character function pointer. |

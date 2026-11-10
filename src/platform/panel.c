@@ -37,6 +37,8 @@ void panel_begin(PrintConsole *con)
 	panel_clear_lines();
 }
 
+C3D_RenderTarget *panel_target(void) { return bottom; }
+
 void panel_end(PrintConsole *con)
 {
 	consoleInit(GFX_BOTTOM, con); /* RGB565, single buffered, cleared, selected */

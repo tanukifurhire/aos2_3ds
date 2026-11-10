@@ -52,6 +52,31 @@ Logo(1) ──> Menu(4: title → main menu → sub-menu)
 Battle(2) end ─> Result(3) (versus) or sequencer step (arcade/story; see §0.4)
 ```
 
+### 0.1.1 Port API (src/app/scene.h, src/app/text.h — Part A, stable)
+
+- **Scenes**: `scene_register(id, &def)` with `scene_def {init, update, draw_top, draw_bottom, exit, run,
+  clear_top, clear_bottom}`; ids = the original ids above (+ port-only `SCENE_LAB`, `SCENE_DEV`,
+  `SCENE_COMING_SOON`). `scene_goto(next)` from `update()` = the scene's Exit: the framework runs `exit()` after
+  this frame's draw, sets `scene_prev()` (= `DAT_00885874`) and runs next's `init()` at the next frame start.
+  Unregistered ids show "coming soon" and return to `scene_prev()`. `run()` = blocking legacy scene (own loop;
+  bottom screen handed to the text console). Register new scenes in `scenes_register_all()` (main.c).
+- **Per-frame post-scene calls** (framework, original order): announce update → `audio_se_frame()` →
+  `music_update()` → transition update. Scenes only call `audio_se(id, AUDIO_SE_CD_DEFAULT)` /
+  `music_request()` / `music_force()`.
+- **Transitions**: `scene_fade(type)` (types 1–16 of FUN_00561fc0), `scene_fade_busy()` (= `DAT_0087e7c0`),
+  drawn over both screens.
+- **Help line**: `announce_show(id)` (ANNOUNCE order index), `announce_show_text()`, `announce_hide()`; drawn on
+  the **bottom** screen (system font, typewriter).
+- **Menu input**: `g_min` fed once per frame; `min_pressed(MI_*)` with the 20/5 direction repeat,
+  `min_pressed_nr()` without, `min_confirm()` (A, or START), `min_cancel()` (B).
+- **Match setup**: `g_setup` (`match_setup`, one field per §0.2 global, same names/values) — the Battle scene
+  (main.c `battle_init`) reads characters, colours, handicap, stage, BGM, difficulty, P2 input, rounds, timer.
+- **Config**: `g_config` (`app_config`, the 3DS-meaningful rows of `modes_menu_config.tsv`), `config_save()`.
+- **Text** (`text.h`): `tr("KEY")`, `tr_id(textId)`, `announce_by_id()`, `kv_load()` for other script files;
+  `text_draw(FONT_*, s, x, y, align, rgba, scale, maxw)` with y = vertical centre of the first line
+  (FUN_005931d0), `text_width()`, `text_wrap()`. Fonts packed: system, menu, menubig, menulabel, menusubtitle,
+  winquote, dialogue (English glyph set, also covers ptbr/sp).
+
 ### 0.2 Match-setup globals (the interface between menus and the fight)
 
 Written by Menu Exit `FUN_00642880` (per main-menu choice `DAT_009b1618`), the select scenes and the sequencer
@@ -146,7 +171,7 @@ Saki, Iru, Nanako, Kae, Kyoko, Hime and n = 0..3 (file `story_<name>_0<n+1>.txt`
 
 | Where | Was | Is | Source |
 |---|---|---|---|
-| core.md §6.1, `src/sim/core.c:787` | maxHp 4500 for everyone | `DAT_0087fad4[i]` (handicap 0..5, default **2** on every menu path) → 4500/6750/**9000**/13500/18000/27000 via jump table `0x69d038` (`jmp [4*ecx+0x69d038]` at 0x69ce04, cases 0x69ce0b..0x69ce47); Ghidra collapsed the switch. Sumika 2nd still 12000/15000/18000 (redHp/`local_a8` keeps the table value). **Fix the sim** (make handicap a match parameter); regenerate the golden trace. | FUN_0069cc40, verified by the lead with `xref dis 69cde0` |
+| core.md §6.1, `src/sim/core.c:787` | maxHp 4500 for everyone | `DAT_0087fad4[i]` (handicap 0..5, default **2** on every menu path) → 4500/6750/**9000**/13500/18000/27000 via jump table `0x69d038` (`jmp [4*ecx+0x69d038]` at 0x69ce04, cases 0x69ce0b..0x69ce47); Ghidra collapsed the switch. Sumika 2nd still 12000/15000/18000 (redHp/`local_a8` keeps the table value). **Fixed** (Part D): `aos_match_params.handicap` (default 2), `aos_handicap_hp()`, netplay proto 4; golden re-recorded. | FUN_0069cc40, verified by the lead with `xref dis 69cde0` |
 | `src/sim/sim.h:214` | gameMode 3 = training-like | `DAT_0087faac == 3` is **online**; Sumika 2nd input fn FUN_00771d10 returns early then | §D.3 |
 | stages.md §1 | stage 4 = menu/title background | menu/title backdrop = stage **0x13** (Menu Init; Menu Exit `FUN_004bfca0(0x13)`); stage 4 is the select-screen backdrop | §A.4.1 |
 | stages.md §2.2 | VS stage cursor = first entry | from the menu the cursor lands on stage **15** (0x79beb2 overwrites the 0) | §B.2 |
@@ -235,7 +260,8 @@ Notation as hud.md: `W,H = DAT_009b0fe4/fe8` (back buffer), `Ww,Hw = DAT_009b0fd
   edge truncated), src = glyph rect (u2 = x+w, not +1); drawn with the page texture vtable +0x74 (dst, 0, src, ARGB,
   blend). Advance `xadv·sx` (+ `(int)(outline·sx)` when the font has an outline) + kerning (FUN_0047c240).
   Quirk: if any glyph has `frac(yoff·sy) > 0.1` (0x853b10) all bottom edges get +0.999 (0x853b30).
-- **Line breaks only at '\n'** (no automatic word wrap anywhere in the renderer). Line advance =
+- **Line breaks only at '\n'** (the draw itself never wraps; conversation text is pre-wrapped by FUN_00593340 ->
+  FUN_0047e2c0, see C.6; the only other caller is FUN_00566440, online chat). Line advance =
   `(int)((base + extra)·sy + 0.5)` (record +8 and +0xc). Hanging indent: a text starting with `"` or `「` (0x300c)
   indents continuation lines by the width of that quote (until the closing `"`/`」`, UNVERIFIED exact rule).
 - Fonts per text id (FUN_0063edb0, scale factor × H/size): main-menu items and most texts **menu ×1.0**; sub-menu row
@@ -463,6 +489,22 @@ gives 8.75 px menu text, 7.5 px subtitles, ≈8 px config rows, 10 px help line 
   hidden (as the PC: logo alpha only in state 100) and the main band at its raised position with "Config" selected.
 - Input: A = confirm (OK slot), B = cancel (Cancel slot); keep the alt pairs (Primary-weapon button = confirm,
   Dash button = cancel) only if the in-game mapping keeps them distinct from A/B; repeat 20/5 frames.
+
+## A.8 Port implementation (src/app/menu.c, menu_draw.c, text_c2d.c; deviations)
+- Fonts pre-scaled offline to on-screen line heights (system 16, menu 18, menubig 20, menulabel 12,
+  menusubtitle 14, winquote/dialogue 16 px) and drawn 1:1 (A.7's 0.5–0.6 proposal, but without runtime
+  minification blur). Carousel pitch 120 px instead of (int)(200 s) = 80 (item width up to 101 px); side items
+  at 0.85 scale; band 22 px (PC 12 px at s), raised by 184 px per open sub-panel instead of 196.
+- Sub-panel subtitles, the config panel and the help line are on the bottom screen (A.7). Config keeps 18 of
+  27 rows + 2 port rows (City sprites, wireless input delay); dropped: screen mode, resolution, 32-bit mode,
+  32-bit textures, advanced effects, autosave replay, play audio when inactive, replay menu on start. Values
+  stored only (not yet read by the match): hitstun meter, high contrast + colours, tournament, pause options,
+  grey background, armor points, attack indicator. Language: en/ptbr/sp (glyph set packed); jp/chs/cht/ko/ru
+  need their font folders. Language value names are hard-coded native names (0xae..0xb5 not in the text table).
+- Port-only return paths (coming soon, lobby, input lab, port select) resume the main menu instead of the title
+  (`menu_resume_next`); original return paths (select cancel, story end) go to the title as Menu Init does.
+- Match → 2P Game and Online both open the local-wireless lobby; Memory/Ranking show "coming soon".
+- How to Play: 512² RGB565 page on the top screen fitted to 400 px width, Up/Down scrolls (PC: 1024² at s).
 
 ## Open questions / UNVERIFIED
 - Exact display of numeric config values (volumes/time) and the text after "ver" (0x94).
@@ -726,7 +768,7 @@ top-left; the noise band uses the centred y-up vertex space (hud.md). "800x600" 
 | Step | Fn | Notes |
 |---|---|---|
 | Load all scripts | `FUN_004e2600` (called from `FUN_00596630`) | Builds the id list 10..13, 20..23, ..., 140..143 (56 ids). For each id it calls `FUN_004e3d20(id)` and stores the record vector in the std::map `DAT_00894140` (id → vector<ACT>) |
-| Resource name | `FUN_004e4fa0(id)` | `"TEXT_CONVERSATION"` + `"0"` (`DAT_00816f78`/`f7c` prefixes) + id → `TEXT_CONVERSATION010` … `TEXT_CONVERSATION143` |
+| Resource name | `FUN_004e4fa0(id)` | `"TEXT_CONVERSATION"` + id zero-padded to 3 digits (prefix `DAT_00816f78` / `f7c` for id < 10 / < 100) → `TEXT_CONVERSATION010` … `TEXT_CONVERSATION099`, `TEXT_CONVERSATION100` … `TEXT_CONVERSATION143` |
 | Parse | `FUN_005d6430` | `FindResourceA(type "TXT")`. Fails with the log "Failed to read script file." |
 | Text file | `FUN_004e49c0(id, lang DAT_00881ec0)` → `FUN_005966e0` (lang path) → `FUN_005d7620` | `story_` + char + `_` + `0`(`DAT_00816ecc`) + (id%10+1). Char by id/10: 1 sora, 2 alte, 3 tsih, 4 mira, 5 sham, 6 nath, 7 starbreaker, 8 suguri, 9 saki, 10 iru (`DAT_00816f20`), 11 nanako, 12 kae (`DAT_00816f30`), 13 kyoko, 14 hime. Lines have the form `<NNNN> text`, and a literal `\n` in the text is a line break (the font layout handles it, section A) |
 | Ref substitution | `FUN_004e3d20` loop (stride 0x88) | If a record's text (+8 left, +0x20 right) starts with `'0'`, it looks up that 4-digit key in the text map and replaces the text with the line |
@@ -830,15 +872,18 @@ Name map `DAT_009b1054` → id → convMdl texture name (`FUN_004e43a0`, path `F
      - Quad y from yc − 50s to yc + 50s (50 `DAT_008140ec`), vertex colour `0xff404040`.
      - uv (0 / tile w, 128s ∓ 50s) (128 `DAT_00814134`).
      - Texture noise[(`DAT_008940ec`/4) % 8].
-     - It is the same noise strip as the round banner (hud.md §4.1; blend/addressing **UNVERIFIED** there too). Screen y: slot 0 band H/2+140s ± 50s (390..490), slot 1 H/2−140s ± 50s (110..210).
+     - It is the same noise strip as the round banner (hud.md §4.1). **Resolved (Part C):** the 8 buffers are `FUN_004789e0(2 polygons, blend 1, 0)` (0x4e2d61), a CPrimitive3D (vtable 0x84a020) with blend mode 1 = SRCALPHA/INVSRCALPHA (FUN_004637d0). Its quad setter (+0x28 = FUN_00479b80) multiplies every u by the bound texture's +0x3c and every v by +0x40 (CTexture vtable +0x2c/+0x30 = FUN_0045bbe0/FUN_0045bbf0), which the loader FUN_0045a6f0 sets to 1/width and 1/height. So **uv are texels of the 512² noise**: u 0..(int)(256s), v = 128s+50s at the top edge and 128s−50s at the bottom (vertically flipped). +0x38/+0x3c (FUN_0047a360/FUN_0047a3c0) reset the world matrix to identity; they do not set addressing. Vertex colour 0xff404040 times the opaque RGB noise. Screen y: slot 0 band H/2+140s ± 50s (390..490), slot 1 H/2−140s ± 50s (110..210).
    - **Portrait**: `FUN_0045bf30(tex, dst, 1.0, src (0x1b8,0,0x647,0x1ff), colour, blend 1)`. Source 1168x512 drawn at 584x256 (half size). Half sizes 292 (`DAT_0081700c`) and 128.
      - cx = W/2 ∓ (int)(300s) (`DAT_008145f0`).
      - cy = H/2 ± (int)(140s) + (int)(50s) − (int)(128s).
      - Slot 0: dst rect **mirrored** (l = cx+292s, r = cx−292s); at 800x600 cx 100, y 234..490.
      - Slot 1: normal; cx 700, y −46..210, partly over the top bar.
      - Colour: `α<<24 | 0xffffff` if the slot speaks (`DAT_00894262`), `α<<24 | 0x808080` if it is `＄` (dimmed).
-     - If the slot's name id changed from the previous act, the old portrait draws with α = 255 − a and the new one with α = a. Act 0 fades in with α = a. Unchanged → α = 255.
-     - Both the outgoing and incoming portrait use the current speak flag.
+     - **Corrected (Part C, disasm 0x4e5728..0x4e57b4):** `it = find(prev id)`; if the ids **differ**, `it = end()` (the jz at 0x4e5783 skips that only when they are equal); the outgoing draw needs `it != end` (FUN_0049a210).
+       - Id **unchanged**: the same portrait is drawn twice, α 255 − a then α 255 (only semi-transparent edges change).
+       - Id **changed**: no outgoing portrait. The new one fades in with α = a and the old one disappears at once.
+       - Act 0 fades in with α = a.
+     - Both draws use the current speak flag.
    - **Text** (if the shown string is non-empty, `FUN_00459e20`): `FUN_005931d0(obj 0x8941d8+0x38i, x, y − (int)(30s), 0, colour, 1)` (30 `DAT_008140e8`).
      - Slot 0: x = W/2 − (int)(150s) (`DAT_0081414c`), y = H/2 + 140s → (250, 410).
      - Slot 1: x = W/2 − (int)(350s) (`DAT_00814be0`), y = H/2 − 140s → (50, 130).
@@ -883,9 +928,32 @@ Keys:
 - **START = skip the whole script** would be a port addition; the original has none, so make it optional. If added, use the same exit path: state 0x5a + `FUN_00561fc0(1)`.
 
 Open / UNVERIFIED:
-- Noise-band blend and uv addressing (shared with hud.md §4.1).
-- The text scale `DAT_00881eb8` / mode width and the line-break handling live in section A.
+- Noise-band blend and uv addressing: resolved in C.3 (alpha blend, texel uv).
+- The text scale `DAT_00881eb8` / mode width live in section A. Line breaking: C.6.
 - The parser's id-10 scan (case 1) looks like dead code.
+
+## C.6 Port notes (Part C: `src/modes/conv.c`, `tools/aos2story`, `tests/test_conv.c`)
+
+**Text wrap.** `FUN_00593340(obj, w, h)` calls `FUN_0047e2c0(font; text, maxW, maxH, &sx, &sy, 0)`. It lays out every conversation line in its box and is ported literally as `conv_wrap`. The same rules apply to all 8 languages:
+- **Words** are runs between `' '` / U+3000; the separator stays at the front of the next word.
+- **At a separator or the last code point**, the pending word goes on the current line if `(int)(wordW + lineW + 0.5) <= maxW`. Otherwise a `'\n'` is inserted first and the word's leading separator is dropped.
+- **Runs without separators** (CJK, long words) break inside once `word + c` alone reaches the width (`(int)(w + 0.5) >= maxW`): the word so far ends the line and `c` starts the next one. There are no kinsoku rules.
+- **Hanging indent:** for text starting with `"` or `「`, continuation lines are indented by xadvance(quote)·sx. A later occurrence of the **same** code point cancels it (the closing `"` does; `」` does not).
+- **Explicit breaks:** a `'\n'` from `\n` in the text files is kept. Consecutive `'\n'` collapse into one (literal behaviour).
+- **Shrink to fit:** height = the lowest glyph yoff of line 1 + Σ (int)((base+extra)·sy+0.5) per break + the highest (yoff+h) of the last line. While height > maxH, sx and sy each drop by 0.1 (DAT_00853b10) and the layout is redone. At 800x600 this shrinks 15 ptbr and 20 sp lines (down to scale 0.58) and none in the other languages.
+- **Width** = FUN_0047ca00: Σ xadv·sx, plus (int)(outline·sx) per glyph when the font has an outline, plus kerning·sx; the widest line counts.
+- **Typewriter positions** are UTF-8 byte offsets, advanced one code point per frame over the laid-out text. Inserted `'\n'` count as characters.
+
+**Data checks (host test):**
+- All 56 scripts parse to exactly the 1146 rows of `modes_story_scripts.tsv`.
+- In all 8 languages every ref resolves and every text key is used; there are 1253 non-`＄` lines per language.
+- Wrapping never loses a character.
+- Scene runs (en, jp) give 1 BGM fade per script (act 0), the 8 SEs at their acts, and one fade-out. Held Special takes 10 frames per act (5 when both texts are ≤ 4 code points).
+
+**3DS** (keeps the §C.5 proposal):
+- **Top screen:** the original composition at s = 0.4 (`conv_view` from `conv_layout_original(…, 400, 240)`).
+- **Bottom screen:** the text, in the app's dialogue font (16 px line, scale 1). Wrap boxes 272 x 96 (slot 0, indented 40) and 304 x 96 (slot 1) give at most 6 lines (sp), 4 (en, jp, ptbr, ru) and 3 (chs, cht, ko), with no shrinking.
+- **Portraits:** see FORMATS.md "Story conversations" (232x102 RGBA8, at most 3 per scene).
 
 # D. Arcade / story ladders, scoring, endings, staff roll, mode effects on the match
 
@@ -1053,8 +1121,8 @@ Story keeps no score.
 
 - Table `DAT_0087b7d0`, file `game.rkg` (0xca8 bytes, load all.c:445505 / save FUN_00792bf0): 3 difficulties ×
   10 entries × 0x24: `+0 score, +4..+0x1c name (7 ints, new entries filled with 0x2d '-'), +0x20 character`.
-  Default table: score `10000 − 1000*i`, name chars all = i, char 10 (even i) / 3 (odd i) (UNVERIFIED that the
-  9th dword is the char: local_110 is adjacent to local_130[8]).
+  Default table: score `10000 − 1000*i`, name chars all = i, char 10 (even i) / 3 (odd i) (verified: FUN_00792a30 copies 9 dwords from `local_130`, whose 9th is the adjacent
+  `local_110`, the same slot FUN_00792f40 writes the character to at +0x20).
 - `FUN_00792f40(diff, score, char)`: first i with `table[diff][i].score < score` (strictly greater wins); shift down,
   insert, return i; 10 if not ranked. Called at **arcade end and at arcade game over** (Result Exit), never story.
   Steam leaderboard upload FUN_006593b0 when the top score > 10000 (port: skip).
@@ -1117,6 +1185,19 @@ app's cosmetic RNG (never `w->rng`). The sim needs no `gameMode` for arcade/stor
 score accumulation, ranking and unlocks live in the app layer and read only the end-of-match facts
 (winner side, per-round records of D.2.2 — the sim must expose hp, best combo dmg/hits per player and the frame
 count at the round end, or the record itself as FUN_0061ac80 builds it).
+
+
+**Port (implemented, Part D).** Verified: every `faa8` reference reachable from the tick (FUN_006129b0,
+FUN_006116c0, FUN_00780ab0, FUN_0060f5a0, FUN_0060b310, FUN_006f1720, FUN_005f91d0, FUN_006124b0, the Sumika 2nd
+fns FUN_00771d10/007721f0/00772ae0) is either `faa8 == 3` (training), `faac == 3/4` (online/replay) or Steam
+achievement/stat eligibility — arcade/story change nothing in the tick. What a fight needs from the mode is
+exactly `ladder_match_params()` (src/modes/ladder.c): ids from the stepper, colours 0/0, schemes {ArcSelect
+choice, 0}, handicap {2,2}, inputSrc {0,10}, difficulty = run difficulty, roundsToWin 1, roundSeconds 180 or 999
+(story && stage 0x13); boss rules need nothing else (Sumika 2nd HP comes from difficulty inside Player Init).
+End-of-match facts: `aos_world.roundRec[round][player]` (FUN_0061ac80 records, appended by FUN_00619cb0 at both
+call sites of FUN_00608a00, cleared by a new-match Game Init), `aos_hp_winner()` (= `DAT_009b6930`) and
+`modes_match_result()` (Game Exit sums). Not ported: the in-match Steam achievements/stats (ACH_NODAMAGE,
+LOWHEAT, COMBO, BREAKSHIELD, ALTEACCEL) and replay bookkeeping.
 
 ## D.4 Endroll (scene 11)
 
@@ -1225,7 +1306,8 @@ centred; confirm advances (FUN_00646ee0, SE 5), after the last → ranking (arca
 Character-select marks: FUN_0079fb30 draws a 9×9 "cleared" icon on a portrait if `b7b9[c]` (story) or
 `b780[c + diff*0x13]` (arcade, current difficulty).
 
-3DS save: store the 0xa4-byte block (or the fields above) + the 0xca8-byte ranking; achievements optional.
+3DS save (implemented, `src/modes/save.h`): `sdmc:/3ds/aos2_3ds/progress.sav` = header "A2SV" + format version +
+crc32, payload = the 0xa4-byte game.sys image (PC byte layout) + the 0xca8-byte game.rkg image + achievement bitmask.
 
 ## D.6 3DS layout proposal — staff roll
 
@@ -1244,4 +1326,3 @@ Textures: convert the used 512×1024 left half of `resMdl/ed_staff1..4.png` to A
 
 - Visual aspect of the staff pages (D.4.1) — confirm with a PC screenshot.
 - Menu item that sets `DAT_009b163c` for story (is a difficulty asked before story?) — menus section.
-- Default ranking table char field (D.2.3) — read `game.rkg` after a fresh start.

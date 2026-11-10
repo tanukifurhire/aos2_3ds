@@ -253,7 +253,7 @@ FUN_005f4650 @0x5f4650.
 | 0xa3..0xab | byte[9] | statusOn[k] | status effect flags (§6.8). Notables: 0xa6 = no-dash, 0xa7 = slow, 0xa9 = hitstun-immune |
 | 0xac..0xcc | int[9] | statusTime[k] | status durations (frames) |
 | 0xd0 | int | hp | |
-| 0xd4 | int | maxHp | 4500 (§6.1) |
+| 0xd4 | int | maxHp | handicap table, 9000 by default (§6.1) |
 | 0xd8 | int | redHp | damage-trail bar (falls 10/frame toward hp) |
 | 0xdc | int | recovHp | recoverable-HP ceiling (heals cannot exceed it) |
 | 0xe0 | float | heat | 0..3.0 (=0..300%) |
@@ -426,11 +426,16 @@ float; `atan2` FUN_00474240 = CRT atan2(y,x). Float precision matters for 1:1 (S
 ## 6. Gauges and rules
 
 ### 6.1 HP
-- maxHp = hp = redHp = recovHp = **4500** (0x1194) for every character (FUN_0069cc40 @0x69cc40:
-  `9000` if `DAT_0087fad4[i] >= 6`, else 4500; that per-player setting only ranges 0..5
-  (character-select option, default 2), so 9000 never occurs — UNVERIFIED what the option is).
+- maxHp = hp = redHp = recovHp = handicap table value (FUN_0069cc40; **corrected 2026-11**, modes.md §0.5):
+  `DAT_0087fad4[i]` (per-player handicap) 0..5 → **4500 / 6750 / 9000 / 13500 / 18000 / 27000** via the jump
+  table at 0x69d038 (`jmp [4*ecx+0x69d038]` at 0x69ce04, cases 0x69ce0b..0x69ce47; `ja` → 9000 for anything
+  else). Ghidra collapsed the switch into `fad4 < 6 ? 4500 : 9000`, which is why this said 4500 before. Every
+  menu path (arcade, story, match, training; modes.md §0.2) sets fad4 = fad8 = **2 → 9000 HP**. Port: per-player
+  match parameter `aos_match_params.handicap` (`AOS_HANDICAP_DEFAULT` = 2), `aos_handicap_hp()`; netplay START
+  carries it (proto 4).
 - Exception Sumika 2nd form (id 0x12, boss): maxHp = hp = recov = 12000 / 15000 / 18000 for
-  difficulty `DAT_0087fab0` = 0 / 1 / 2 (redHp stays 4500 then snaps to hp next frame).
+  difficulty `DAT_0087fab0` = 0 / 1 / 2 (other values: the table value); redHp (`local_a8`) keeps the
+  table value (9000) and snaps to hp next frame.
 - `recovHp` cap: after damage `recov -= (int)(rawDamage*0.8)` and each frame recov is lowered to
   `(hp/(max/3)+1)*(max/3)` (integer). Heals (FUN_007808a0: `hp += (int)(amount*0.1)` capped at recov,
   then redHp = hp) only come from absorb-type moves (collision FUN_0060bf30/FUN_006113a0).
@@ -793,7 +798,7 @@ draws may be moved to a separate stream — but then all clients must do the sam
 
 ---------------------------------------------------------------------------------------------------
 ## 9. UNVERIFIED list
-- `DAT_0087fad4[i]` meaning (makes HP 9000 only if ≥ 6; UI shows 6 choices 0..5) — check the
+- `DAT_0087fad4[i]` (HP handicap, §6.1): no menu found that offers values other than 2 — check the
   character-select text ids 0x1d8..0x1dd.
 - HUD names of gaugeA/gaugeB (+0xe8/+0xec).
 - Whether any T2 handler ever returns 0 (would erase the player in FUN_006f1720).

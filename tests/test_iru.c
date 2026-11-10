@@ -409,7 +409,7 @@ static void test_random_hyper(void)
 			if (((s >> 8) & 3) == 0)
 				m ^= (uint16_t)(1u << ((s >> 12) % 10));
 			w->p[0].hyper = 3.0f;
-			w->p[0].hp = w->p[1].hp = 4500;
+			w->p[0].hp = w->p[0].maxHp, w->p[1].hp = w->p[1].maxHp;
 			tick(w, m, 1);
 			if (!isfinite(w->p[0].x)) {
 				CHECK(0, "non-finite at %d", f);

@@ -177,6 +177,7 @@ void hg_image(int t, float x0, float y0, float x1, float y1, float u0, float v0,
 	sub.bottom = s->top + (s->bottom - s->top) * fv1;
 	sub.width = (u16)fmaxf(1.0f, fabsf(x1 - x0));
 	sub.height = (u16)fmaxf(1.0f, fabsf(y1 - y0));
+	spritebank_clamp_sub(&sub, s, h->img.tex);
 	C2D_Image img = {h->img.tex, &sub};
 	blend(bl);
 	C2D_ImageTint tint;

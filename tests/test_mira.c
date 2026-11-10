@@ -394,7 +394,7 @@ static void test_divine(void)
 	}
 	CHECK(b && c, "0x9a hit -> 0x9b -> 0x9c (§3)");
 	CHECK(clones >= 4, "clones 400/401/402 spawned (§3 0x9b) (max alive %d)", clones);
-	CHECK(w->p[1].hp < 4500, "Divine Speed Slash deals damage");
+	CHECK(w->p[1].hp < w->p[1].maxHp, "Divine Speed Slash deals damage");
 }
 
 /* every state runs to completion and draws (smoke for draw code) */
@@ -438,7 +438,7 @@ static void test_hyper_random(void)
 				if (((s >> 8) & 3) == 0)
 					m[i] ^= (uint16_t)(1u << ((s >> 12) % 10));
 				w->p[i].hyper = 3.0f;
-				w->p[i].hp = 4500;
+				w->p[i].hp = w->p[i].maxHp;
 			}
 			aos_tick(w, m);
 			draw_all(w);

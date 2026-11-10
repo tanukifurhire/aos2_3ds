@@ -2276,6 +2276,19 @@ static void missile_draw(aos_world *w, aos_missile *m) /* FUN_00671b90 */
 		}
 		break;
 	}
+	case 300: { /* 0xee (nt_fuse) frame 4, then 5/6 additive with pulsing alpha; size 74 = DAT_0081cd9c */
+		float sn = aos_sin(((float)(m->age % 0x32) / 50.0f) * TWO_PI); /* DAT_008140ec, DAT_00853b78 */
+		float a[2] = {sn * 0.15f + 0.85f, sn * 0.25f + 0.75f};         /* DAT_00813f20/00814120, 00813f24/00813f3c */
+		aos_dcmd *c = model("nt_fuse%02d", 4, bank, m->pos[0], m->pos[1], 74.0f, 1.0f, 1.0f);
+		c->rotZ = aos_rad2bam(m->angle);
+		for (int k = 0; k < 2; k++) {
+			c = model("nt_fuse%02d", 5 + k, bank, m->pos[0], m->pos[1], 74.0f, 1.0f, 1.0f);
+			c->rotZ = aos_rad2bam(m->angle);
+			c->rgba = argb(a[k], 1, 1, 1);
+			c->blend = AOS_BLEND_ADD_ALPHA;
+		}
+		break;
+	}
 	default:
 		break;
 	}

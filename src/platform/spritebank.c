@@ -27,6 +27,9 @@ typedef struct {
 } page_t;
 
 #define VRAM_RESERVE (768 * 1024) /* left free for render targets / later users */
+#ifndef MIP_LOD_BIAS
+#define MIP_LOD_BIAS -0.5f /* sharper: switch to the next mip level only past ~1.4x minification */
+#endif
 
 static page_t *page_load(const char *path, bool try_vram)
 {
@@ -43,6 +46,8 @@ static page_t *page_load(const char *path, bool try_vram)
 			size_t sz = 0;
 			if (fread(h, 1, sizeof h, f) == sizeof h)
 				sz = (size_t)(8u << (h[2] & 7)) * (8u << ((h[2] >> 3) & 7)) * (h[3] == GPU_ETC1A4 || h[3] == GPU_L8 || h[3] == GPU_A8 || h[3] == GPU_LA4 ? 1 : 2);
+			if (sz && h[4]) /* mipmap chain */
+				sz = sz * 4 / 3;
 			fseek(f, 0, SEEK_SET);
 			if (!sz || vramSpaceFree() < sz + VRAM_RESERVE) {
 				fclose(f);
@@ -56,6 +61,18 @@ static page_t *page_load(const char *path, bool try_vram)
 			/* what C2D_SpriteSheetLoad does after the import: clamp to a 0 border */
 			C3D_TexSetWrap(&pg->tex, GPU_CLAMP_TO_BORDER, GPU_CLAMP_TO_BORDER);
 			pg->tex.border = 0;
+			/* Bilinear: the import leaves both filters at NEAREST, which made
+			 * rotated sprites (missiles, beams) shimmer between pixel patterns
+			 * (64-texel missiles are ~20 px on screen) instead of turning smoothly;
+			 * character atlases also carry mipmaps (aos2pack mipmapped()), which is
+			 * what anti-aliases those minified sprites. Draws clamp their texture
+			 * coordinates to the frame's texel centres (spritebank_clamp_sub) so
+			 * atlas neighbours don't bleed in. Filtering is free on the PICA200. */
+			C3D_TexSetFilter(&pg->tex, GPU_LINEAR, GPU_LINEAR);
+			if (pg->tex.maxLevel > 0) {
+				C3D_TexSetFilterMipmap(&pg->tex, GPU_LINEAR);
+				C3D_TexSetLodBias(&pg->tex, MIP_LOD_BIAS);
+			}
 			return pg;
 		}
 	}

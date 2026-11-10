@@ -200,6 +200,22 @@ typedef struct {
 	int32_t tileDelay[15][20]; /* DAT_0087e7e0 */
 } aos_flow;
 
+/* Per-round result record, FUN_0061ac80 (0x18 bytes), appended for both players by
+ * FUN_00619cb0 at every round end (modes.md §D.2.2). Read by the result/score code. */
+typedef struct {
+	int32_t timeBonus; /* +0x00 round winner only: clamp((int)((180 - frames/60) / 120.0f * 10000.0f), 0, 10000) */
+	int32_t seconds;   /* +0x04 DAT_008858f8 / 60 */
+	int32_t hp;        /* +0x08 remaining HP (+0xd0) */
+	int32_t comboDmg;  /* +0x0c best combo damage (+0x124) */
+	int32_t comboHits; /* +0x10 best combo hits (+0x12c) */
+	int32_t score;     /* +0x14 hp + comboDmg + timeBonus */
+} aos_round_rec;
+#define AOS_MAX_ROUND_RECS 8 /* rounds per match <= 2 * roundsToWin - 1 (roundsToWin <= 3) */
+
+/* HP handicap (DAT_0087fad4/fad8): index 0..5 -> 4500/6750/9000/13500/18000/27000
+ * (FUN_0069cc40, jump table 0x69d038; anything else -> 9000). Every menu path sets 2. */
+#define AOS_HANDICAP_DEFAULT 2
+
 typedef struct aos_world {
 	aos_player p[2];
 	aos_mt rng;            /* game RNG (0x876ef0), reseeded with 0 every round */
@@ -211,7 +227,8 @@ typedef struct aos_world {
 	int32_t roundsToWin;   /* DAT_0087faf0 */
 	int32_t matchFinished; /* DAT_0088596c */
 	int32_t difficulty;    /* DAT_0087fab0 (CPU) */
-	int32_t gameMode;      /* DAT_0087faac: 0 normal; 3 = training-like (Sumika 2nd form AI idles); 4 replay */
+	int32_t gameMode;      /* DAT_0087faac sub-mode: 0 CPU match, 1 2P, 3 online (Sumika 2nd form input fn
+	                        * FUN_00771d10 returns early), 4 replay. Unused by the port (modes.md §D.3). */
 	int32_t nextObjId;     /* DAT_0088597c */
 	aos_flow flow;         /* round/match flow, banners, transitions (flow.c) */
 	aos_objects obj;
@@ -234,6 +251,12 @@ typedef struct aos_world {
 	 * docs/re/music.md §6): AOS_SE_CD_DEFAULT = FUN_007bc9c0 (lock 2 frames),
 	 * else the FUN_007bcaf0 cooldown argument. */
 	uint8_t se_cd[32];
+	/* ---- appended for the modes work (kept at the end so the older layout is a prefix) ---- */
+	int32_t handicap[2];   /* DAT_0087fad4 / DAT_0087fad8: HP table index per player (match parameter) */
+	/* FUN_00619cb0 round records, vector 0x885a74 + side*0xc; cleared by a new-match Game Init
+	 * (DAT_00885879). Write-only for the tick; the app reads it at match end (modes.md §D.2.2). */
+	int32_t nRoundRecs;
+	aos_round_rec roundRec[AOS_MAX_ROUND_RECS][2]; /* [round][player index] */
 } aos_world;
 
 #define AOS_SE_CD_DEFAULT 0xff
@@ -242,6 +265,19 @@ typedef struct aos_world {
 void aos_register_all(void);  /* fills aos_tab (like FUN_0049ae40) */
 void aos_match_init(aos_world *w, const int32_t ids[2], const int32_t schemes[2],
                     const int32_t colors[2], int32_t roundSeconds, int32_t roundsToWin);
+/* Full match setup (the setup globals of modes.md §0.2 that reach the fight). aos_match_init
+ * above == this with handicap {2,2}, difficulty 0, inputSrc {0,0}. */
+typedef struct {
+	int32_t ids[2], schemes[2], colors[2];
+	int32_t handicap[2];   /* AOS_HANDICAP_DEFAULT unless a mode says otherwise */
+	int32_t inputSrc[2];   /* 0 local pad, 10 CPU (DAT_0087fab4/fab8) */
+	int32_t difficulty;    /* DAT_0087fab0 (CPU AI level; also Sumika 2nd form HP) */
+	int32_t roundSeconds;  /* DAT_00885974: 180 arcade/story, 999 story on stage 19 */
+	int32_t roundsToWin;   /* DAT_0087faf0 */
+} aos_match_params;
+void aos_match_params_default(aos_match_params *m); /* handicap 2, 180 s, 2 rounds, rest 0 */
+void aos_match_init_ex(aos_world *w, const aos_match_params *m);
+int32_t aos_handicap_hp(int32_t handicap); /* FUN_0069cc40 jump table 0x69d038 */
 void aos_round_init(aos_world *w);           /* Game Init per round (FUN_005f4650) */
 void aos_tick(aos_world *w, const uint16_t masks[2]); /* FUN_006116c0 decode + FUN_006129b0 */
 void aos_draw_players(aos_world *w);         /* FUN_006b1ea0 */
@@ -252,6 +288,8 @@ void aos_draw_players(aos_world *w);         /* FUN_006b1ea0 */
 void aos_match_restart(aos_world *w);
 bool aos_match_decided(const aos_world *w);       /* FUN_00619c60 */
 int aos_match_winner(const aos_world *w);         /* player index with roundsWon >= roundsToWin, -1 none */
+/* DAT_009b6930 as Game Exit FUN_005f5780 computes it: p0.hp <= p1.hp -> 1 (a tie is a P2 win). */
+static inline int aos_hp_winner(const aos_world *w) { return w->p[0].hp <= w->p[1].hp; }
 void aos_round_end_banner(aos_world *w, int kind); /* FUN_0060b310 */
 void aos_screen_fade(aos_world *w, int type);      /* FUN_00561fc0 */
 /* The in-match HUD (FUN_006bafd0) is drawn only while this holds (FUN_005f91d0). */

@@ -198,7 +198,7 @@ static void test_rifle(void)
 	ticks(w, 0, 80);
 	CHECK(w->p[0].state == AOS_ST_NEUTRAL, "§3 0x132 ends");
 	CHECK(!strcmp(spawn_times(K_BEAM, 100), "12"), "§3 0x132: beam 100 at t=12 (FUN_007570b0) got [%s]", spawn_times(K_BEAM, 100));
-	CHECK(4500 - w->p[1].hp == 216, "§5.1 beam 100 damage 216 (0xd8, ver>=0x58a) got %d", 4500 - w->p[1].hp);
+	CHECK(w->p[1].maxHp - w->p[1].hp == 216, "§5.1 beam 100 damage 216 (0xd8, ver>=0x58a) got %d", w->p[1].maxHp - w->p[1].hp);
 	/* §1.2 cost 0.25 A, gain 0.04; gauge refills 0.01/f only in states 0..2 */
 	w = setup(0, 400);
 	tick(w, AOS_IN_A);
@@ -304,7 +304,7 @@ static void test_sword(void)
 	CHECK(w->p[0].state == 0x139, "S+A near -> 0x139");
 	ticks(w, AOS_IN_S, 10);
 	CHECK(!strcmp(spawn_times(K_HITBOX, 100), "10"), "§3 0x139 hitbox 100 at t=10 (got [%s])", spawn_times(K_HITBOX, 100));
-	CHECK(4500 - w->p[1].hp == 180, "§5.2 hitbox 100 dmg 180 (got %d)", 4500 - w->p[1].hp);
+	CHECK(w->p[1].maxHp - w->p[1].hp == 180, "§5.2 hitbox 100 dmg 180 (got %d)", w->p[1].maxHp - w->p[1].hp);
 	CHECK(w->p[0].hitFlag == 1, "§0.2 hitbox 100 sets hit-confirm (FUN_005ecfd0)");
 	CHECK(NEAR(w->p[0].hyper, 0.05f), "§1.2 0x139 gain .05 (got %.3f)", w->p[0].hyper);
 	tick(w, AOS_IN_S | AOS_IN_A);
@@ -393,10 +393,10 @@ static void test_hypers(void)
 	 * (blockMode 2); FUN_00610360 erases segments [k+1, end) (iterator post-incremented at
 	 * 0x61056c before erase), keeping the touching segment. While objects.c pass_laser_block
 	 * erases [k, end) the laser can never touch its target -> reported, not counted. */
-	if (4500 - w->p[1].hp == 0)
+	if (w->p[1].maxHp - w->p[1].hp == 0)
 		printf("KNOWN ENGINE BUG (objects.c pass_laser_block nseg=k, should be k+1): Hyper Rifle dealt 0\n");
 	else
-		CHECK((4500 - w->p[1].hp) % 60 == 0, "§5.4 laser ticks of 60 (dmg %d)", 4500 - w->p[1].hp);
+		CHECK((w->p[1].maxHp - w->p[1].hp) % 60 == 0, "§5.4 laser ticks of 60 (dmg %d)", w->p[1].maxHp - w->p[1].hp);
 
 	w = setup(0, 400);
 	w->p[0].hyper = 1.0f;
@@ -413,7 +413,7 @@ static void test_hypers(void)
 	tick(w, AOS_IN_S | AOS_IN_H);
 	ticks(w, 0, 20);
 	CHECK(!strcmp(spawn_times(K_HITBOX, 0x96), "15"), "§3 0x141 hitbox 0x96 at t=15 (got [%s])", spawn_times(K_HITBOX, 0x96));
-	CHECK(4500 - w->p[1].hp == 720, "§5.2 Hyper Sword 720 (got %d)", 4500 - w->p[1].hp);
+	CHECK(w->p[1].maxHp - w->p[1].hp == 720, "§5.2 Hyper Sword 720 (got %d)", w->p[1].maxHp - w->p[1].hp);
 
 	w = setup(0, 400);
 	w->p[0].hyper = 3.0f;
@@ -499,7 +499,7 @@ static void test_hyper_random(void)
 				if (((s >> 8) & 3) == 0)
 					m[i] ^= (uint16_t)(1u << ((s >> 12) % 10));
 				w->p[i].hyper = 3.0f;
-				w->p[i].hp = 4500; /* keep the round going */
+				w->p[i].hp = w->p[i].maxHp; /* keep the round going */
 			}
 			nlog = 0;
 			aos_tick(w, m);

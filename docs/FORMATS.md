@@ -29,3 +29,37 @@ Not in the data. `aos2.exe` (32-bit x86, MSVC, ~4.2 MB `.text`, no SteamStub/pac
 character moves, bullet patterns, physics, heat/hyper rules, AI, menus and netcode. Libraries
 statically linked: zlib 1.2.3, a PhysicsFS-style ZIP reader, libjpeg. Online play uses **Steam
 lobbies + Steam P2P networking** (`CFBFSteamMultiplayer`, `P2PSessionRequest_t`).
+
+## Story conversations (docs/re/modes.md §C)
+
+Source: the story texts are in `script.pak` (`script/<lang>/story_<char>_0<n>.txt`, `<NNNN> text` lines,
+literal `
+` = line break), but *who speaks, which portrait, bands, backdrop and SE* are 56 Win32 resources of
+`aos2.exe` (type `TXT`, names `TEXT_CONVERSATION010` … `TEXT_CONVERSATION143`, FUN_004e4fa0 zero-pads the id to
+3 digits). Script id = `10*k + n`: k = 1..14 story character (sora alte tsih mira sham nath starbreaker suguri
+saki iru nanako kae kyoko hime), n = chapter 0..3 → text file `story_<char>_0<n+1>.txt`. Script grammar
+(FUN_005d6430): blank and `/` lines skipped; `[ACT]` then 5 lines `< name >< band >`, left text, `< name ><
+band >`, right text, `< bg >< bgm >< se >< int >`; `[EOF]`. Text lines: `＄` (keep the previous text,
+dimmed), `　` (U+3000 → `" "`), `[text NNNN]` (key into the text file). Full record layout: modes.md §C.1;
+all 1146 records: `docs/re/modes_story_scripts.tsv`.
+
+**Port data** (`tools/aos2story`, run by build.sh → `romfs:/story/`, 2.5 MB):
+
+| Path | Content |
+|---|---|
+| `story/res/TEXT_CONVERSATION<id>.txt` | the 56 resources, verbatim (134 KB total, ≤ 5.5 KB each) |
+| `story/<lang>/story_<char>_0<n>.txt` | the story texts of all 8 languages (en jp chs cht ptbr sp ko ru), verbatim (≤ 3.8 KB each) |
+| `story/portrait/<name>.t3x` | 16 portraits (sora alte tsih mira sham nath star suguri saki iru nanako kae kyoko hime sumika sumikab) |
+
+Scripts and texts stay text: `src/modes/conv.c` parses them on the device with the original parsers
+(FUN_005d6430 / FUN_005d7620), so there is no second format to keep in sync; one conversation = one script
++ one text file, ≤ 9 KB read, ≤ 7 KB heap after parsing (host test numbers).
+
+Portraits: convMdl textures are 2048x512 RGBA of which the PC draws src rect (0x1b8,0)-(0x647,0x1ff)
+(1167x511) at half size, 584x256 at s = 1 (FUN_004e54b0). The port crops that rect and resamples it
+(Catmull-Rom, premultiplied alpha) to the exact on-screen size on the top screen (s = 0.4): **232x102**,
+tex3ds RGBA8 padded to 256x128 (one sub-texture, `C2D_SpriteSheetLoad`) = **128 KB linear memory each**,
+11–38 KB on romfs (`-z auto`). `none.png` (512², fully transparent, name id 0) is not shipped: id 0 draws
+nothing. A script uses at most 3 non-empty portraits (49 scripts use 2, 7 use 3), so a conversation holds
+≤ 384 KB of portraits, loaded at scene Init (`conv_script_portraits`, FUN_004e4630) and freed at Exit.
+The noise band textures are `systemMdl/noise0..7` (already in the HUD atlases).

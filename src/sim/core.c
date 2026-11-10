@@ -249,16 +249,18 @@ void aos_status(aos_world *w, aos_player *p, int k, int32_t frames) /* FUN_006b1
 {
 	if (p->state == AOS_ST_KO || !p->hittable || k < 0 || k >= AOS_STATUS_COUNT)
 		return;
-	if (p->statusOn[k]) {
+	bool fresh = !p->statusOn[k];
+	if (!fresh) {
 		if (frames > p->statusTime[k])
 			p->statusTime[k] = frames;
-		return;
+	} else {
+		p->statusOn[k] = 1;
+		p->statusTime[k] = frames;
 	}
-	p->statusOn[k] = 1;
-	p->statusTime[k] = frames;
+	/* switch at 0x6b1add runs on both paths: 1/2/7 always SE 0x26, 3 only when newly set */
 	if (k == 1 || k == 2 || k == 7)
 		aos_se(w, 0x26);
-	if (k == 3)
+	if (k == 3 && fresh)
 		aos_se(w, 0x15);
 }
 
@@ -784,11 +786,17 @@ void aos_round_init(aos_world *w) /* FUN_005f4650 + FUN_0069cc40 */
 		p->faceAngle = i == 0 ? 0.0f : AOS_PI;
 		p->fa1 = 1;
 		p->hittable = 1;
-		p->maxHp = p->hp = p->redHp = p->recovHp = 4500;
-		if (p->id == AOS_CH_SUMIKA2) {
-			static const int32_t bossHp[3] = {12000, 15000, 18000};
-			int d = w->difficulty < 0 ? 0 : w->difficulty > 2 ? 2 : w->difficulty;
-			p->maxHp = p->hp = p->recovHp = bossHp[d];
+		/* +0xd0 hp, +0xd4 maxHp, +0xd8 redHp, +0xdc recovHp = handicap table (0x69cde8). */
+		p->maxHp = p->hp = p->redHp = p->recovHp = aos_handicap_hp(w->handicap[i]);
+		if (p->id == AOS_CH_SUMIKA2) { /* case 0x12: hp/maxHp/recovHp only, redHp keeps the table value */
+			int32_t hp = p->maxHp;
+			if (w->difficulty == 2)
+				hp = 18000;
+			else if (w->difficulty == 1)
+				hp = 15000;
+			else if (w->difficulty == 0)
+				hp = 12000;
+			p->maxHp = p->hp = p->recovHp = hp;
 		}
 		p->gaugeA = p->gaugeB = 1.0f;
 		p->hyperMul = 1.0f;
@@ -801,25 +809,57 @@ void aos_round_init(aos_world *w) /* FUN_005f4650 + FUN_0069cc40 */
 	aos_mt_seed(&w->rng, 0);
 	w->frame = 0;
 	w->roundOver = 0;
+	if (w->flow.firstInit) /* new match (DAT_00885879): clear the round records 0x885a74 (0x5f4802) */
+		w->nRoundRecs = 0;
 	aos_flow_round_init(w); /* banners, round timer, transition (flow.c) */
+}
+
+int32_t aos_handicap_hp(int32_t handicap) /* FUN_0069cc40: switch at 0x69ce04, table 0x69d038 */
+{
+	static const int32_t hp[6] = {4500, 6750, 9000, 13500, 18000, 27000};
+	return (uint32_t)handicap < 6 ? hp[handicap] : 9000; /* ja (unsigned) -> default 9000 */
+}
+
+void aos_match_params_default(aos_match_params *m)
+{
+	memset(m, 0, sizeof *m);
+	m->handicap[0] = m->handicap[1] = AOS_HANDICAP_DEFAULT;
+	m->roundSeconds = 180;
+	m->roundsToWin = 2;
+}
+
+void aos_match_init_ex(aos_world *w, const aos_match_params *m)
+{
+	memset(w, 0, sizeof *w);
+	for (int i = 0; i < 2; i++) {
+		w->p[i].id = m->ids[i];
+		w->p[i].scheme = m->schemes[i];
+		w->p[i].color = m->colors[i];
+		w->p[i].inputSrc = m->inputSrc[i];
+		w->handicap[i] = m->handicap[i];
+	}
+	w->difficulty = m->difficulty;
+	w->roundsToWin = m->roundsToWin;
+	w->flow.roundSeconds = m->roundSeconds;
+	w->flow.firstInit = 1;
+	w->nextObjId = 1;
+	aos_mt_seed(&w->cpuRng, 5489); /* PC: random_device; any seed is faithful */
+	aos_round_init(w);
 }
 
 void aos_match_init(aos_world *w, const int32_t ids[2], const int32_t schemes[2],
                     const int32_t colors[2], int32_t roundSeconds, int32_t roundsToWin)
 {
-	memset(w, 0, sizeof *w);
+	aos_match_params m;
+	aos_match_params_default(&m);
 	for (int i = 0; i < 2; i++) {
-		w->p[i].id = ids[i];
-		w->p[i].scheme = schemes[i];
-		w->p[i].color = colors[i];
-		w->p[i].inputSrc = 0;
+		m.ids[i] = ids[i];
+		m.schemes[i] = schemes[i];
+		m.colors[i] = colors[i];
 	}
-	w->roundsToWin = roundsToWin;
-	w->flow.roundSeconds = roundSeconds;
-	w->flow.firstInit = 1;
-	w->nextObjId = 1;
-	aos_mt_seed(&w->cpuRng, 5489); /* PC: random_device; any seed is faithful */
-	aos_round_init(w);
+	m.roundSeconds = roundSeconds;
+	m.roundsToWin = roundsToWin;
+	aos_match_init_ex(w, &m);
 }
 
 /* ------------------------------------------------------------------ */

@@ -1,5 +1,10 @@
 /*
- * AoS2 3DS - entry point: menu, character select, match loop.
+ * AoS2 3DS - entry point: scene registration (scene.h), the Battle scene
+ * (match loop), the port's versus select (until Part B's VS Select), the
+ * local-wireless lobby and the input lab.
+ *
+ * Flow (docs/re/modes.md §0.1): Logo -> Menu (title, main menu, sub-menus,
+ * config) -> select -> Battle -> ...
  *
  * Controls (user mapping, aos_input.h): L Dash, R Hyper, A/B Weapon A/B,
  * X/Y Special A/B (= S+A / S+B), L+R Shield, Circle Pad / D-Pad move.
@@ -10,6 +15,7 @@
 #include <citro2d.h>
 #include <stdio.h>
 #include <string.h>
+#include <sys/stat.h>
 
 #include "../input/aos_input.h"
 #include "../platform/bgm.h"
@@ -22,13 +28,22 @@
 #include "../sim/sim.h"
 #include "../net/uds_link.h"
 #include "audio.h"
+#include "menu.h"
 #include "music.h"
 #include "netplay.h"
 #include "prof.h"
+#include "scene.h"
+#include "scene_core.h"
+#include "text.h"
+#include "ui.h"
 
 int lab_run(C3D_RenderTarget *top, const char *aerr);
 
-static aos_world world; /* ~0.5 MB: static, not on the stack */
+static aos_world world; /* ~1 MB: static, not on the stack */
+static const char *aerr;
+
+/* Port-internal scene id: the blocking UDS session started from the lobby picker. */
+#define SCENE_NETPLAY_RUN 23
 
 static const int roster[] = {10, 3, 4, 5, 6, 7, 8, 9, 11, 12, 13, 14, 15, 16, 17, 18};
 #define NROSTER ((int)(sizeof roster / sizeof roster[0]))
@@ -51,122 +66,352 @@ uint16_t to_mask(const aos_input_out *o, u32 kh, const circlePosition *cp)
 	return m;
 }
 
-/* Sound effects of this frame, then the per-frame SE/BGM updates in the
- * original's main-loop order (scene, FUN_007bcc00, FUN_004beeb0). */
-static void play_frame_sounds(const aos_world *w)
-{
-	for (int i = 0; i < w->se_count; i++)
-		audio_se(w->se[i], w->se_cd[i]);
-	music_watch(w);
-	audio_se_frame();
-	music_update();
-}
+/* Stage sound effects (thunder, explosions: FUN_007bc9c0 from the stage update). */
+static void stage_se_cb(int id) { audio_se(id, AUDIO_SE_CD_DEFAULT); }
+
+/* ================================================================ Battle (scene 2) */
+
+static aos_input battle_in;
+static bool battle_texfail;
 
 static void battle_bgm(void)
 {
 	/* VS Select Exit picks the track (FUN_0079bfc0), Game Init starts it (FUN_005f4650) */
-	int bgm = music_resolve();
-	music_battle_start(bgm);
-	printf("BGM: %s (#%d)\n", music_name(bgm), bgm);
+	music_battle_start(g_setup.bgm);
+	printf("BGM: %s (#%d)\n", music_name(g_setup.bgm), g_setup.bgm);
 }
 
-/* Stage sound effects (thunder, explosions: FUN_007bc9c0 from the stage update). */
-static void stage_se_cb(int id) { audio_se(id, AUDIO_SE_CD_DEFAULT); }
+static void battle_frame_done(void) { prof_frame_done(&world); }
 
-static void match_run(C3D_RenderTarget *top, PrintConsole *con, int p1, int p2, int stage)
+static void battle_init(void) /* Game Init FUN_005f4650 (app side) */
 {
-	int32_t ids[2] = {p1, p2}, sch[2] = {0, 0}, col[2] = {0, p1 == p2 ? 1 : 0};
-	aos_match_init(&world, ids, sch, col, 180, 2);
-	world.p[1].inputSrc = 10; /* P2 = CPU (falls back to idle for characters without ported AI) */
-	world.difficulty = 1;
+#ifdef AOS_PROFILE
+	if (bench_active()) { /* sdmc:/aos2_bench.txt: run the scenarios, then quit (prof.h) */
+		int b1, b2, bs;
+		if (!bench_next(&b1, &b2, &bs)) {
+			scene_goto(SCENE_QUIT);
+			return;
+		}
+		g_setup.chara[0] = b1;
+		g_setup.chara[1] = b2;
+		g_setup.stage = bs;
+		g_setup.color[0] = g_setup.color[1] = 3;
+		g_setup.bgm = music_resolve();
+	}
+#endif
+	/* menus' fonts/textures are not needed during the match (docs/PERF.md memory budget) */
+	text_fonts_unload();
+	ui_mtex_free_all();
+	announce_hide();
+	match_setup *s = &g_setup;
+	aos_match_params m;
+	aos_match_params_default(&m);
+	for (int i = 0; i < 2; i++) {
+		m.ids[i] = s->chara[i];
+		m.schemes[i] = s->command[i];
+		m.handicap[i] = s->handicap[i];
+		m.inputSrc[i] = s->input[i];
+	}
+	/* colour 3 = auto: the second of two equal characters takes colour 1 */
+	m.colors[0] = s->color[0] == 3 ? 0 : s->color[0];
+	m.colors[1] = s->color[1] == 3 ? (s->chara[0] == s->chara[1] && m.colors[0] == 0 ? 1 : 0) : s->color[1];
+	m.difficulty = s->difficulty;
+	m.roundSeconds = s->timer;
+	m.roundsToWin = s->rounds > 0 ? s->rounds : 2;
+	aos_match_init_ex(&world, &m);
 	bench_setup(&world); /* profile builds: CPU vs CPU benchmark (prof.h) */
-	consoleSelect(con);
-	consoleClear();
-	bool texfail = !render_load_match(&world);
-	if (texfail)
-		printf("\x1b[31mtexture load failed\x1b[0m\n");
-	printf("\x1b[36m%s vs %s\x1b[0m   START: menu\n", render_char_name(p1), render_char_name(p2));
-	if (!aos_tab.inputA[p1])
-		printf("\x1b[33m%s is not ported yet\x1b[0m\n", render_char_name(p1));
-	printf("L dash  R hyper  A/B weapons\nX/Y specials  L+R shield\n");
+	int p1 = s->chara[0], p2 = s->chara[1];
+	battle_texfail = !render_load_match(&world);
 	battle_bgm();
-	stage3ds_begin(stage); /* Game Init: loader + FUN_004bfc10 (random resolved like FUN_007aaf90) */
-	printf("Stage: %s\n", stage_name(stage_current()));
+	stage3ds_begin(s->stage); /* Game Init: loader + FUN_004bfc10 (random resolved like FUN_007aaf90) */
 	audio_se_prepare(p1, p2, stage_current()); /* SE residency for this match (audio.h) */
-	/* bottom screen: match panel (heat/combo + status lines) instead of the console */
-	panel_begin(con);
-	panel_line(0, C2D_Color32(110, 220, 255, 255), "%s vs %s     START: menu", render_char_name(p1), render_char_name(p2));
+	/* bottom screen: match panel (heat/combo + status lines) */
+	panel_clear_lines();
+	panel_line(0, C2D_Color32(110, 220, 255, 255), "%s vs %s     START: quit", render_char_name(p1), render_char_name(p2));
 	panel_line(1, C2D_Color32(220, 220, 220, 255), "L dash  R hyper  A/B weapons  X/Y specials  L+R shield");
 	panel_line(2, C2D_Color32(220, 220, 220, 255), "Stage: %s", stage_name(stage_current()));
-	if (texfail)
-		panel_line(3, C2D_Color32(255, 90, 90, 255), "texture load failed");
+	if (battle_texfail)
+		panel_line(3, C2D_Color32(255, 90, 90, 255), "texture load failed (%s/%s, linear free %luK)", render_player_folder(0),
+		           render_player_folder(1), (unsigned long)(linearSpaceFree() / 1024));
 	else if (!aos_tab.inputA[p1])
 		panel_line(3, C2D_Color32(255, 220, 80, 255), "%s is not ported yet", render_char_name(p1));
+	aos_input_init(&battle_in, NULL);
+	prof_match_begin(&world, s->stage);
+	scene_post_frame_hook = battle_frame_done;
+}
 
-	aos_input in;
-	aos_input_init(&in, NULL);
-	prof_match_begin(&world, stage);
-	while (aptMainLoop()) {
-		prof_frame_start();
-		hidScanInput();
-		u32 kd = hidKeysDown(), kh = hidKeysHeld();
-		if ((kd & KEY_START) || bench_done())
-			break;
-		circlePosition cp;
-		hidCircleRead(&cp);
-		aos_input_out o = aos_input_update(&in, aos_input_from_3ds(kh));
-		uint16_t masks[2] = {to_mask(&o, kh, &cp), 0};
-		bench_pre_tick(&world);
-		PROF_BEGIN(PROF_TICK);
-		aos_tick(&world, masks);
-		PROF_END(PROF_TICK);
-		PROF_BEGIN(PROF_STAGE_UPD);
-		stage3ds_tick(world.obj.zoomView, world.frame); /* FUN_004bfd30, tick step 7 */
-		PROF_END(PROF_STAGE_UPD);
-		PROF_BEGIN(PROF_AUDIO);
-		play_frame_sounds(&world);
-		PROF_END(PROF_AUDIO);
-
-		/* Rounds advance inside aos_tick (FUN_00608a00, src/sim/flow.c). Once the
-		 * match-end wipe covers the screen the PC shows the result screen; here
-		 * the next match starts right away. */
-		if (world.flow.matchEnd) {
-			panel_line(4, C2D_Color32(120, 255, 120, 255), "%s wins!", aos_match_winner(&world) == 1 ? "P2" : "P1");
+static void battle_update(void)
+{
+	u32 kh = hidKeysHeld();
+	if (min_pressed_nr(MI_START) || bench_done()) { /* pause menu Quit: back to the select */
+		scene_goto(bench_active() ? SCENE_BATTLE : scene_prev() == SCENE_BATTLE ? SCENE_VS_SELECT : scene_prev());
+		return;
+	}
+	circlePosition cp;
+	hidCircleRead(&cp);
+	aos_input_out o = aos_input_update(&battle_in, aos_input_from_3ds(kh));
+	uint16_t masks[2] = {to_mask(&o, kh, &cp), 0};
+	bench_pre_tick(&world);
+	PROF_BEGIN(PROF_TICK);
+	aos_tick(&world, masks);
+	PROF_END(PROF_TICK);
+	PROF_BEGIN(PROF_STAGE_UPD);
+	stage3ds_tick(world.obj.zoomView, world.frame); /* FUN_004bfd30, tick step 7 */
+	PROF_END(PROF_STAGE_UPD);
+	PROF_BEGIN(PROF_AUDIO);
+	for (int i = 0; i < world.se_count; i++)
+		audio_se(world.se[i], world.se_cd[i]);
+	music_watch(&world);
+	PROF_END(PROF_AUDIO);
+	/* Rounds advance inside aos_tick (FUN_00608a00, src/sim/flow.c). Once the
+	 * match-end wipe covers the screen the PC goes to the result screen (Part B);
+	 * until that scene exists the next match starts right away. */
+	if (world.flow.matchEnd) {
+		panel_line(4, C2D_Color32(120, 255, 120, 255), "%s wins!", aos_match_winner(&world) == 1 ? "P2" : "P1");
+		if (scene_get(SCENE_RESULT)) {
+			scene_goto(SCENE_RESULT);
+		} else {
 			aos_match_restart(&world);
 			battle_bgm(); /* next match: result/select screens are skipped (music.md §5) */
 		}
-
-		PROF_BEGIN(PROF_WAIT);
-		C3D_FrameBegin(C3D_FRAME_SYNCDRAW);
-		PROF_END(PROF_WAIT);
-		render_world(top, &world);
-		PROF_BEGIN(PROF_PANEL);
-		panel_draw(&world);
-		PROF_END(PROF_PANEL);
-		PROF_BEGIN(PROF_FRAMEEND);
-		C3D_FrameEnd(0);
-		PROF_END(PROF_FRAMEEND);
-		prof_frame_done(&world);
-		if (kh & KEY_SELECT) { /* hold SELECT: stage cost readout (stages.md §5) */
-			static unsigned n, su, sd, sr;
-			static float cpu;
-			su += stage3ds_update_us;
-			sd += stage3ds_last_us;
-			sr += stage3ds_record_us;
-			cpu += C3D_GetProcessingTime();
-			if (++n == 60) {
-				panel_line(5, C2D_Color32(180, 180, 255, 255), "stage upd %uus rec %uus draw %uus cpu %.1fms", su / n,
-				           sr / n, sd / n, (double)(cpu / n));
-				n = su = sd = sr = 0;
-				cpu = 0;
-			}
+	}
+	if (kh & KEY_SELECT) { /* hold SELECT: stage cost readout (stages.md §5) */
+		static unsigned n, su, sd, sr;
+		static float cpu;
+		su += stage3ds_update_us;
+		sd += stage3ds_last_us;
+		sr += stage3ds_record_us;
+		cpu += C3D_GetProcessingTime();
+		if (++n == 60) {
+			panel_line(5, C2D_Color32(180, 180, 255, 255), "stage %uus/%uus/%uus cpu %.1fms lin %luK", su / n, sr / n, sd / n,
+			           (double)(cpu / n), (unsigned long)(linearSpaceFree() / 1024));
+			n = su = sd = sr = 0;
+			cpu = 0;
 		}
 	}
+}
+
+static void battle_draw_top(void) { render_world(scene_top(), &world); }
+
+static void battle_draw_bottom(void)
+{
+	PROF_BEGIN(PROF_PANEL);
+	panel_draw(&world);
+	PROF_END(PROF_PANEL);
+}
+
+static void battle_exit(void) /* Game Exit FUN_005f5780 (app side) */
+{
+	scene_post_frame_hook = NULL;
 	prof_match_end();
-	panel_end(con);
 	stage3ds_end();
 	render_unload_match();
 	music_battle_exit();
+	panel_clear_lines();
+}
+
+static const scene_def battle_scene = {
+	.name = "battle", .init = battle_init, .update = battle_update, .draw_top = battle_draw_top,
+	.draw_bottom = battle_draw_bottom, .exit = battle_exit,
+};
+
+/* ================================================================ port versus select (scene 6 until Part B) */
+
+static int sel[2], stage_sel, vs_row;
+
+static void vs_init(void)
+{
+	if (scene_prev() == SCENE_MENU)
+		music_scene_select(); /* Select Init: force 0x16 */
+	announce_show_text("Up/Down: row   Left/Right: change   L/R: music   A: fight   B: back");
+	vs_row = 0;
+}
+
+static void vs_update(void)
+{
+	stage3ds_menu_tick(); /* select-screen background = stage 4 (modes.md §0.5) */
+	int rows = g_setup.sub == SUB_CPU && g_setup.mode == MODE_MATCH ? 4 : 3;
+	if (min_pressed(MI_UP) || min_pressed(MI_DOWN)) {
+		vs_row = (vs_row + (min_pressed(MI_DOWN) ? 1 : rows - 1)) % rows;
+		audio_se(2, AUDIO_SE_CD_DEFAULT);
+	}
+	if (min_pressed(MI_LEFT) || min_pressed(MI_RIGHT)) {
+		int d = min_pressed(MI_RIGHT) ? 1 : -1;
+		if (vs_row < 2)
+			sel[vs_row] = (sel[vs_row] + d + NROSTER) % NROSTER;
+		else if (vs_row == 2)
+			stage_sel = (stage_sel + d + stage_vs_count) % stage_vs_count;
+		else
+			g_setup.difficulty = (g_setup.difficulty + d + 3) % 3;
+		audio_se(2, AUDIO_SE_CD_DEFAULT);
+	}
+	if (min_pressed(MI_L) || min_pressed(MI_R))
+		music_sel_step(min_pressed(MI_L) ? -1 : 1); /* the original's stage-select up/down (SE 2 inside) */
+	if (min_confirm()) {
+		audio_se(0, AUDIO_SE_CD_DEFAULT);
+		g_setup.chara[0] = roster[sel[0]];
+		g_setup.chara[1] = roster[sel[1]];
+		g_setup.color[0] = g_setup.color[1] = 3;
+		g_setup.stage = stage_vs_list[stage_sel];
+		g_setup.bgm = music_resolve();
+		scene_goto(SCENE_BATTLE);
+	} else if (min_cancel()) {
+		audio_se(1, AUDIO_SE_CD_DEFAULT);
+		menu_resume_next();
+		scene_goto(SCENE_MENU);
+	}
+}
+
+static void vs_draw_top(void)
+{
+	stage3ds_draw();
+	ui_blend_reset();
+	static const char *const diff[3] = {"Easy", "Normal", "Hard"};
+	const char *title = g_setup.mode == MODE_TRAINING ? "Practice" : "VS CPU";
+	ui_rect(0, 8, 400, 34, 0xa0000000);
+	text_draw(FONT_MENUBIG, title, 200, 21, TEXT_CENTER, 0xffffffff, 1.0f, 0);
+	char line[96];
+	int rows = g_setup.sub == SUB_CPU && g_setup.mode == MODE_MATCH ? 4 : 3;
+	for (int r = 0; r < rows; r++) {
+		float y = 70 + 30 * (float)r;
+		ui_rect(0, y - 12, 400, y + 12, r == vs_row ? 0x90ffffff : 0x90000000);
+		if (r < 2) {
+			int id = roster[sel[r]];
+			snprintf(line, sizeof line, "P%d  %s%s", r + 1, render_char_name(id), aos_tab.inputA[id] ? "" : " (not ported)");
+		} else if (r == 2)
+			snprintf(line, sizeof line, "Stage  %s", stage_name(stage_vs_list[stage_sel]));
+		else
+			snprintf(line, sizeof line, "CPU  %s", diff[g_setup.difficulty % 3]);
+		text_draw(FONT_MENU, line, 200, y, TEXT_CENTER, r == vs_row ? 0xffffffff : ui_c2d(0xffa4a4a4), 0.9f, 380);
+	}
+	snprintf(line, sizeof line, "Music  %s", music_name(music_list_id(music_sel())));
+	text_draw(FONT_MENU, line, 200, 200, TEXT_CENTER, 0xffffffff, 0.8f, 380);
+}
+
+static void vs_draw_bottom(void)
+{
+	ui_rect_grad(0, 0, 320, 240, 0xff1a2c5a, 0xff1a2c5a, 0xff05070f, 0xff05070f);
+	text_draw(FONT_MENU, scene_current() == SCENE_NET_SELECT ? "Local wireless (2 consoles)" : "Port select (temporary)", 160,
+	          20, TEXT_CENTER, 0xffffffff, 0.8f, 300);
+	text_draw(FONT_SYSTEM, "L dash  R hyper  A/B weapons", 160, 60, TEXT_CENTER, ui_c2d(0xffa4a4a4), 1.0f, 300);
+	text_draw(FONT_SYSTEM, "X/Y specials  L+R shield", 160, 78, TEXT_CENTER, ui_c2d(0xffa4a4a4), 1.0f, 300);
+	text_draw(FONT_SYSTEM, "START in a match: back here", 160, 104, TEXT_CENTER, ui_c2d(0xffa4a4a4), 1.0f, 300);
+}
+
+static const scene_def vs_scene = {
+	.name = "vs select (port)", .init = vs_init, .update = vs_update, .draw_top = vs_draw_top,
+	.draw_bottom = vs_draw_bottom, .clear_top = 0xff1e0a08,
+};
+
+/* ================================================================ local wireless (scene 7, port lobby) */
+
+static int net_row;
+static bool net_host;
+
+static void net_init(void)
+{
+	if (scene_prev() == SCENE_MENU)
+		music_scene_select();
+	announce_show_text("Local wireless versus with a second 3DS: one console hosts, the other joins.");
+	net_row = 0;
+}
+
+static void net_update(void)
+{
+	stage3ds_menu_tick();
+	if (min_pressed(MI_UP) || min_pressed(MI_DOWN)) {
+		net_row = (net_row + 1 + (min_pressed(MI_UP) ? 2 : 0)) % 4;
+		audio_se(2, AUDIO_SE_CD_DEFAULT);
+	}
+	if (min_pressed(MI_LEFT) || min_pressed(MI_RIGHT)) {
+		int d = min_pressed(MI_RIGHT) ? 1 : -1;
+		if (net_row == 2)
+			sel[0] = (sel[0] + d + NROSTER) % NROSTER;
+		else if (net_row == 3)
+			stage_sel = (stage_sel + d + stage_vs_count) % stage_vs_count;
+		audio_se(2, AUDIO_SE_CD_DEFAULT);
+	}
+	if (min_pressed(MI_L) || min_pressed(MI_R))
+		music_sel_step(min_pressed(MI_L) ? -1 : 1);
+	if (min_confirm() && net_row < 2) {
+		audio_se(0, AUDIO_SE_CD_DEFAULT);
+		net_host = net_row == 0;
+		scene_goto(SCENE_NETPLAY_RUN);
+	} else if (min_cancel()) {
+		audio_se(1, AUDIO_SE_CD_DEFAULT);
+		menu_resume_next();
+		scene_goto(SCENE_MENU);
+	}
+}
+
+static void net_draw_top(void)
+{
+	stage3ds_draw();
+	ui_blend_reset();
+	ui_rect(0, 8, 400, 34, 0xa0000000);
+	text_draw(FONT_MENUBIG, "Local wireless", 200, 21, TEXT_CENTER, 0xffffffff, 1.0f, 0);
+	char line[96];
+	for (int r = 0; r < 4; r++) {
+		float y = 70 + 30 * (float)r;
+		ui_rect(0, y - 12, 400, y + 12, r == net_row ? 0x90ffffff : 0x90000000);
+		if (r == 0)
+			snprintf(line, sizeof line, "Host match");
+		else if (r == 1)
+			snprintf(line, sizeof line, "Join match");
+		else if (r == 2)
+			snprintf(line, sizeof line, "You  %s", render_char_name(roster[sel[0]]));
+		else
+			snprintf(line, sizeof line, "Stage (host)  %s", stage_name(stage_vs_list[stage_sel]));
+		text_draw(FONT_MENU, line, 200, y, TEXT_CENTER, r == net_row ? 0xffffffff : ui_c2d(0xffa4a4a4), 0.9f, 380);
+	}
+	snprintf(line, sizeof line, "Music (host, L/R)  %s   delay %d f", music_name(music_list_id(music_sel())), g_config.net_delay);
+	text_draw(FONT_MENU, line, 200, 200, TEXT_CENTER, 0xffffffff, 0.75f, 380);
+}
+
+static const scene_def net_scene = {
+	.name = "local wireless", .init = net_init, .update = net_update, .draw_top = net_draw_top,
+	.draw_bottom = vs_draw_bottom, .clear_top = 0xff1e0a08,
+};
+
+static void netplay_scene_run(void)
+{
+	text_fonts_unload();
+	ui_mtex_free_all();
+	stage3ds_end();
+	netplay_run(scene_top(), scene_console(), net_host, roster[sel[0]], g_config.net_delay, stage_vs_list[stage_sel]);
+	music_scene_select();
+	scene_goto(SCENE_NET_SELECT);
+}
+
+static const scene_def netplay_run_scene = {.name = "netplay", .run = netplay_scene_run};
+
+/* ================================================================ input lab (port) */
+
+static void lab_scene_run(void)
+{
+	text_fonts_unload();
+	ui_mtex_free_all();
+	stage3ds_end();
+	consoleClear();
+	lab_run(scene_top(), aerr);
+	consoleInit(GFX_BOTTOM, scene_console());
+	menu_resume_next();
+	scene_goto(SCENE_MENU);
+}
+
+static const scene_def lab_scene = {.name = "input lab", .run = lab_scene_run};
+
+/* ================================================================ main */
+
+static void scenes_register_all(void)
+{
+	menu_scenes_register();           /* Part A: logo, menu, coming soon */
+	scene_register(SCENE_BATTLE, &battle_scene);
+	scene_register(SCENE_VS_SELECT, &vs_scene); /* Part B replaces with VS Select */
+	scene_register(SCENE_NET_SELECT, &net_scene);
+	scene_register(SCENE_NETPLAY_RUN, &netplay_run_scene);
+	scene_register(SCENE_LAB, &lab_scene);
+	/* Part B: SCENE_ARC_SELECT, SCENE_RESULT; Part C: SCENE_CONVERSATION; Part D: SCENE_ENDROLL */
 }
 
 int main(void)
@@ -178,120 +423,34 @@ int main(void)
 	C2D_Init(C2D_DEFAULT_MAX_OBJECTS * 4);
 	C2D_Prepare();
 	C3D_RenderTarget *top = C2D_CreateScreenTarget(GFX_TOP, GFX_LEFT);
-	PrintConsole con;
+	static PrintConsole con;
 	consoleInit(GFX_BOTTOM, &con);
 
-	const char *aerr = NULL;
+	mkdir("sdmc:/3ds", 0777);
+	mkdir("sdmc:/3ds/aos2_3ds", 0777);
+	config_load();
 	if (audio_init(&aerr))
 		bgm_init();
 	aos_register_all();
 	if (!stage3ds_init())
 		printf("stage shader missing\n");
 	stage_g.se = stage_se_cb;
+	stage_g.lod = g_config.city_lod;
 	music_init();
-	music_scene_select();
+	music_set_level(g_config.bgm_volume);
+	audio_set_se_level(g_config.se_volume);
+	if (!strings_init("romfs:/script", g_config.language))
+		printf("script text missing\n");
 
-#ifdef AOS_PROFILE
-	if (bench_active()) { /* sdmc:/aos2_bench.txt: run the scenarios, then quit (prof.h) */
-		int b1, b2, bs;
-		while (aptMainLoop() && bench_next(&b1, &b2, &bs))
-			match_run(top, &con, b1, b2, bs);
-		goto quit;
-	}
-#endif
-	int sel[2] = {0, 0}, side = 0, net_delay = 2;
-	int stage_sel = 0; /* index into stage_vs_list (select-screen order, FUN_0079acc0) */
-	bool redraw = true;
-	while (aptMainLoop()) {
-		hidScanInput();
-		u32 kd = hidKeysDown();
-		if (kd & KEY_START)
-			break;
-		if (kd & (KEY_DLEFT | KEY_DRIGHT | KEY_DUP | KEY_DDOWN)) {
-			if (side == 2) { /* stage row */
-				if (kd & KEY_DRIGHT) stage_sel = (stage_sel + 1) % stage_vs_count;
-				if (kd & KEY_DLEFT) stage_sel = (stage_sel + stage_vs_count - 1) % stage_vs_count;
-			} else if (side == 3) { /* city sprite option (stages 12/14, presentation only) */
-				if (kd & KEY_DRIGHT) stage_g.lod = (stage_g.lod + 1) % STAGE_LOD_COUNT;
-				if (kd & KEY_DLEFT) stage_g.lod = (stage_g.lod + STAGE_LOD_COUNT - 1) % STAGE_LOD_COUNT;
-			} else {
-				if (kd & KEY_DRIGHT) sel[side] = (sel[side] + 1) % NROSTER;
-				if (kd & KEY_DLEFT) sel[side] = (sel[side] + NROSTER - 1) % NROSTER;
-			}
-			if (kd & KEY_DDOWN) side = (side + 1) % 4;
-			if (kd & KEY_DUP) side = (side + 3) % 4;
-			redraw = true;
-		}
-		if (kd & (KEY_L | KEY_R)) { /* BGM select (the original's stage-select up/down) */
-			music_sel_step((kd & KEY_L) ? -1 : 1);
-			redraw = true;
-		}
-		if (kd & (KEY_CPAD_UP | KEY_CPAD_DOWN)) { /* config BGM volume 0..10 */
-			music_set_level(music_level() + ((kd & KEY_CPAD_UP) ? 1 : -1));
-			audio_se(2, AUDIO_SE_CD_DEFAULT);
-			redraw = true;
-		}
-		if (kd & (KEY_CPAD_RIGHT | KEY_CPAD_LEFT)) { /* config SE volume 0..10 */
-			audio_set_se_level(audio_se_level() + ((kd & KEY_CPAD_RIGHT) ? 1 : -1));
-			audio_se(2, AUDIO_SE_CD_DEFAULT);
-			redraw = true;
-		}
-		if (kd & KEY_A) {
-			match_run(top, &con, roster[sel[0]], roster[sel[1]], stage_vs_list[stage_sel]);
-			music_scene_select();
-			redraw = true;
-		}
-		if (kd & (KEY_Y | KEY_B)) { /* local wireless versus: you play your P1 pick */
-			netplay_run(top, &con, (kd & KEY_Y) != 0, roster[sel[0]], net_delay, stage_vs_list[stage_sel]);
-			music_scene_select();
-			redraw = true;
-		}
-		if (kd & KEY_SELECT) {
-			net_delay = (net_delay + 1) % 5;
-			redraw = true;
-		}
-		if (kd & KEY_X) {
-			consoleClear();
-			lab_run(top, aerr);
-			consoleInit(GFX_BOTTOM, &con);
-			music_scene_select();
-			redraw = true;
-		}
-		if (redraw) {
-			redraw = false;
-			consoleSelect(&con);
-			consoleClear();
-			printf("\x1b[36mAcceleration of SUGURI 2 - 3DS (WIP)\x1b[0m\n\n");
-			for (int s = 0; s < 2; s++) {
-				int id = roster[sel[s]];
-				printf("%s P%d: %-14s %s\n", s == side ? ">" : " ", s + 1, render_char_name(id),
-				       aos_tab.inputA[id] ? "" : "(not ported)");
-			}
-			printf("%s Stage: %s\n", side == 2 ? ">" : " ", stage_name(stage_vs_list[stage_sel]));
-			printf("%s City sprites: %s\n", side == 3 ? ">" : " ", stage_lod_names[stage_g.lod]);
-			printf("\nLeft/Right: change  Up/Down: P1/P2/stage\n");
-			printf("A: versus CPU (normal difficulty)\nX: input lab   START: quit\n");
-			printf("\nLocal wireless (you = P1 pick):\nY: host match   B: join match\n");
-			printf("SELECT: input delay %d f (host's is used)\n", net_delay);
-			printf("\nL/R BGM: %.31s\n", music_name(music_list_id(music_sel())));
-			printf("C-pad BGM vol %d (U/D)  SE vol %d (L/R)\n", music_level(), audio_se_level());
-			if (aerr)
-				printf("\n\x1b[33maudio: %s\x1b[0m\n", aerr);
-		}
-		audio_se_frame();
-		music_update();
-		stage3ds_menu_tick(); /* menu background = stage 4 (docs/re/stages.md) */
-		C3D_FrameBegin(C3D_FRAME_SYNCDRAW);
-		C2D_TargetClear(top, C2D_Color32(8, 10, 30, 255));
-		C2D_SceneBegin(top);
-		stage3ds_draw();
-		C3D_FrameEnd(0);
-	}
-#ifdef AOS_PROFILE
-quit:
-#endif
+	scenes_register_all();
+	scene_setup(top, &con);
+	scene_main(bench_active() ? SCENE_BATTLE : SCENE_LOGO);
+
 	uds_link_exit();
 	stage3ds_exit();
+	text_fonts_unload();
+	ui_mtex_free_all();
+	strings_exit();
 	bgm_exit();
 	audio_exit();
 	spritebank_exit();
