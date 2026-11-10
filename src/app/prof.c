@@ -441,6 +441,8 @@ bool bench_done(void) { return cur >= 0 && cur < nsc && --frames_left < 0; }
  *                       K = A B X Y L R UP DOWN LEFT RIGHT START SELECT
  *   hold K[+K..] N      hold for N frames, no release gap
  *   touch X Y [h]       touch the bottom screen at (X, Y) for h frames (default 4) + 6 released
+ *   touchdown X Y       keep touching (X, Y) through the following commands (e.g. a shot of the pressed state)
+ *   touchup             release it
  *   shot NAME           dump this frame's top + bottom targets to sdmc:/cap/NAME_{top,bot}.raw
  *                       (tools/capconv.py)
  *   decide [W]          Battle: end the match now, W = 1 P1 wins (default) / 2 P2 wins (main.c fake record)
@@ -459,6 +461,8 @@ static int scr_n = -1, scr_pc, scr_frame, scr_left, scr_phase, scr_wait_scene;
 static uint32_t scr_keys;
 static int scr_tx, scr_ty;
 static bool scr_touch;
+static bool scr_touch_hold; /* touchdown .. touchup */
+static int scr_hx, scr_hy;
 static int scr_decide;
 static char scr_shot[40];
 static FILE *scr_log;
@@ -506,6 +510,10 @@ static void scr_load(void)
 			c = (scr_cmd){.op = 'k', .keys = scr_keymask(a1), .a = n >= 3 ? y : 4, .b = n >= 4 ? z : 6};
 		else if (!strcmp(op, "hold") && n >= 3)
 			c = (scr_cmd){.op = 'k', .keys = scr_keymask(a1), .a = y, .b = 0};
+		else if (!strcmp(op, "touchdown") && n >= 3)
+			c = (scr_cmd){.op = 'T', .a = atoi(a1), .b = y};
+		else if (!strcmp(op, "touchup"))
+			c.op = 'U';
 		else if (!strcmp(op, "touch") && n >= 3) {
 			x = atoi(a1);
 			c = (scr_cmd){.op = 't', .a = x, .b = y, .c = n >= 4 ? z : 4};
@@ -542,7 +550,11 @@ void prof_script_step(void)
 	if (scr_n < 0)
 		scr_load();
 	scr_keys = 0;
-	scr_touch = false;
+	scr_touch = scr_touch_hold;
+	if (scr_touch_hold) {
+		scr_tx = scr_hx;
+		scr_ty = scr_hy;
+	}
 	scr_frame++;
 	while (scr_pc < scr_n) {
 		scr_cmd *c = &scr[scr_pc];
@@ -595,6 +607,19 @@ void prof_script_step(void)
 			scr_phase = 0;
 			scr_wait_scene = 0;
 			return; /* the dump happens after this frame is drawn */
+		case 'T':
+			scr_touch_hold = true;
+			scr_hx = c->a;
+			scr_hy = c->b;
+			scr_touch = true;
+			scr_tx = c->a;
+			scr_ty = c->b;
+			scr_note("touchdown");
+			break;
+		case 'U':
+			scr_touch_hold = false;
+			scr_note("touchup");
+			break;
 		case 'd':
 			scr_decide = c->a;
 			scr_note("decide");

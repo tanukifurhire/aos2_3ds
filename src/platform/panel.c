@@ -93,34 +93,66 @@ static bool lines_shown(void)
 
 /* ================================================================ layout and art */
 
-typedef struct {
-	float x0, y0, x1, y1, cut;
-	unsigned col; /* 0xRRGGBB */
-} slot_box;
+/* The button area (y 0..AREA_Y1) is cut by an X into four triangles meeting at (CX, CY): S+H top, H left,
+ * B+H right, D+H bottom; the Accel Hyper is a hexagon on the crossing (user request 2026-11-10). */
+#define CX 160.0f
+#define CY 110.0f
+#define AREA_Y1 220.0f
+#define GAP 2.5f   /* each triangle is pushed this far outwards: thin dark seams along the diagonals */
+#define HEX_R 48.0f /* flat-top hexagon: half width 48, half height 41.6 */
 
-/* A cross like the 3DS Pokemon battle menus: S+H top, H left, B+H right, D+H bottom, Accel Hyper centre. */
-static const slot_box box[HT_NSLOT] = {
-	[HT_UP] = {54, 4, 266, 52, 12, 0x9a4cf0},      /* violet */
-	[HT_LEFT] = {4, 58, 101, 166, 12, 0x2b74f0},   /* blue */
-	[HT_RIGHT] = {219, 58, 316, 166, 12, 0x1fa84a}, /* green */
-	[HT_DOWN] = {54, 172, 266, 220, 12, 0xf08a1c}, /* orange */
-	[HT_CENTER] = {106, 58, 214, 166, 18, 0xe0243c}, /* red, gold rim */
+static const unsigned slot_col[HT_NSLOT] = {
+	[HT_UP] = 0x9a4cf0,     /* violet */
+	[HT_LEFT] = 0x2b74f0,   /* blue */
+	[HT_RIGHT] = 0x1fa84a,  /* green */
+	[HT_DOWN] = 0xf08a1c,   /* orange */
+	[HT_CENTER] = 0xe0243c, /* red, gold rim */
 };
+
+/* name area and cost-gem anchor per slot (inside the triangle, clear of the hexagon) */
+static const struct {
+	float x0, y0, x1, y1, gx, gy;
+} area[HT_NSLOT] = {
+	[HT_UP] = {72, 6, 248, 50, 160, 59},
+	[HT_LEFT] = {6, 74, 100, 142, 50, 152},
+	[HT_RIGHT] = {220, 74, 314, 142, 270, 152},
+	[HT_DOWN] = {72, 172, 248, 214, 160, 162},
+	[HT_CENTER] = {CX - 38, CY - 17, CX + 38, CY + 19, CX, CY + 30},
+};
+
 #define GAUGE_X0 66.0f
 #define GAUGE_X1 314.0f
 #define GAUGE_Y0 226.0f
 #define GAUGE_Y1 236.0f
 
-void panel_slot_rect(int slot, float *x0, float *y0, float *x1, float *y1)
+/* triangle k: two outer corners + the crossing, pushed outwards by GAP */
+static void tri_of(int k, float x[3], float y[3])
 {
-	const slot_box *b = &box[slot < 0 || slot >= HT_NSLOT ? HT_CENTER : slot];
-	*x0 = b->x0;
-	*y0 = b->y0;
-	*x1 = b->x1;
-	*y1 = b->y1;
+	static const float ox[4][2] = {{0, BW}, {0, 0}, {BW, BW}, {0, BW}}, oy[4][2] = {{0, 0}, {0, AREA_Y1}, {0, AREA_Y1}, {AREA_Y1, AREA_Y1}};
+	static const float dx[4] = {0, -1, 1, 0}, dy[4] = {-1, 0, 0, 1};
+	x[0] = ox[k][0] + dx[k] * GAP;
+	y[0] = oy[k][0] + dy[k] * GAP;
+	x[1] = ox[k][1] + dx[k] * GAP;
+	y[1] = oy[k][1] + dy[k] * GAP;
+	x[2] = CX + dx[k] * GAP * 1.6f;
+	y[2] = CY + dy[k] * GAP * 1.6f;
 }
 
-unsigned panel_slot_color(int slot) { return box[slot < 0 || slot >= HT_NSLOT ? HT_CENTER : slot].col; }
+void panel_slot_rect(int slot, float *x0, float *y0, float *x1, float *y1)
+{
+	if (slot == HT_CENTER) {
+		*x0 = CX - HEX_R, *x1 = CX + HEX_R, *y0 = CY - HEX_R * 0.866f, *y1 = CY + HEX_R * 0.866f;
+		return;
+	}
+	float x[3], y[3];
+	tri_of(slot < 0 || slot >= HT_NSLOT ? HT_UP : slot, x, y);
+	*x0 = fminf(x[0], fminf(x[1], x[2]));
+	*x1 = fmaxf(x[0], fmaxf(x[1], x[2]));
+	*y0 = fminf(y[0], fminf(y[1], y[2]));
+	*y1 = fmaxf(y[0], fmaxf(y[1], y[2]));
+}
+
+unsigned panel_slot_color(int slot) { return slot_col[slot < 0 || slot >= HT_NSLOT ? HT_CENTER : slot]; }
 
 static int pl_local, pl_chara = -1;
 static bool pl_on;
@@ -176,21 +208,13 @@ static void fit_label(slot_label *l, const char *s, float w, float h)
 	}
 }
 
-/* the area a slot's name may use (gems, the Accel tag and the alt line take the rest) */
+/* the area a slot's name may use (the alt line takes the bottom of it) */
 static void label_area(int k, float *x0, float *y0, float *x1, float *y1)
 {
-	const slot_box *b = &box[k];
-	*x0 = b->x0 + 8;
-	*x1 = b->x1 - 8;
-	*y0 = b->y0 + 5;
-	*y1 = b->y1 - 5;
-	if (b->y1 - b->y0 > 70) { /* tall: gems under the name */
-		*y1 -= 12;
-		if (k == HT_CENTER)
-			*y0 += 14; /* "Accel Hyper" tag */
-	} else {
-		*x1 -= 30; /* flat: gems on the right */
-	}
+	*x0 = area[k].x0;
+	*x1 = area[k].x1;
+	*y0 = area[k].y0;
+	*y1 = area[k].y1;
 	if (lab[k].alt[0])
 		*y1 -= 11;
 }
@@ -251,14 +275,18 @@ void panel_touch_reset(void)
 	touch_down = true; /* a finger already on the screen must lift first */
 }
 
+/* the hexagon wins inside its shape, else the diagonals of the X decide (scaled so they run at 45 degrees) */
 static int hit(int x, int y)
 {
-	for (int k = 0; k < HT_NSLOT; k++) {
-		const slot_box *b = &box[k];
-		if (x >= b->x0 && x < b->x1 && y >= b->y0 && y < b->y1)
-			return k;
-	}
-	return -1;
+	float dx = (float)x - CX, dy = (float)y - CY;
+	if (fabsf(dy) <= HEX_R * 0.866f && fabsf(dx) <= HEX_R - fabsf(dy) * 0.57735f)
+		return HT_CENTER;
+	if ((float)y >= AREA_Y1)
+		return -1; /* the gauge strip */
+	float sy = dy * (CX / CY);
+	if (fabsf(sy) >= fabsf(dx))
+		return dy < 0 ? HT_UP : HT_DOWN;
+	return dx < 0 ? HT_LEFT : HT_RIGHT;
 }
 
 int panel_touch(const aos_world *w)
@@ -308,15 +336,6 @@ void panel_chamfer(float x0, float y0, float x1, float y1, float c, unsigned top
 	}
 }
 
-/* top half gloss: chamfer cut on the top corners only */
-static void gloss(float x0, float y0, float x1, float y1, float c, float a)
-{
-	u32 t = ui_c2d(argb(a, 0xffffff)), b = ui_c2d(argb(a * 0.15f, 0xffffff));
-	C2D_DrawTriangle(x0 + c, y0, t, x1 - c, y0, t, x1, y0 + c, t, UI_DEPTH);
-	C2D_DrawTriangle(x0 + c, y0, t, x0, y0 + c, t, x1, y0 + c, t, UI_DEPTH);
-	C2D_DrawRectangle(x0, y0 + c, UI_DEPTH, x1 - x0, y1 - y0 - c, t, t, b, b);
-}
-
 static void gem(float cx, float cy, float r, bool lit)
 {
 	u32 rim = ui_c2d(lit ? 0xfffff2b0 : 0xff2a2a3a), in = ui_c2d(lit ? 0xffffc21a : 0xff4a4a5e),
@@ -347,56 +366,37 @@ static void text_shadowed(font_id f, const char *s, float x, float y, int align,
 	text_draw(f, s, x, y, align, ui_c2d(argb(a, rgb)), sc, maxw);
 }
 
-static void draw_button(int k, int state, bool pressed)
+static void hexagon(float cx, float cy, float r, unsigned top, unsigned bottom)
 {
-	const slot_box *b = &box[k];
-	float x0 = b->x0, y0 = b->y0, x1 = b->x1, y1 = b->y1, c = b->cut;
-	if (state == S_EMPTY) { /* socket: no such hyper for this character */
-		panel_chamfer(x0, y0, x1, y1, c, 0x90202838, 0x90101420);
-		panel_chamfer(x0 + 2, y0 + 2, x1 - 2, y1 - 2, c - 1, 0xa00c1020, 0xa0080a14);
-		text_draw(FONT_MENUBIG, "-", (x0 + x1) / 2, (y0 + y1) / 2, TEXT_CENTER, ui_c2d(0x60ffffff), 1.0f, 0);
-		return;
+	float px[6], py[6];
+	u32 col[6];
+	for (int i = 0; i < 6; i++) {
+		float a = (float)i * 1.0471976f;
+		px[i] = cx + r * cosf(a);
+		py[i] = cy + r * sinf(a);
+		float t = (py[i] - (cy - r)) / (2 * r);
+		unsigned al = (unsigned)((float)(top >> 24) * (1 - t) + (float)(bottom >> 24) * t + 0.5f);
+		col[i] = ui_c2d(al << 24 | mixc(top, bottom, t));
 	}
+	unsigned ca = ((top >> 24) + (bottom >> 24)) / 2;
+	u32 cc = ui_c2d(ca << 24 | mixc(top, bottom, 0.5f));
+	for (int i = 0; i < 6; i++) {
+		int j = (i + 1) % 6;
+		C2D_DrawTriangle(cx, cy, cc, px[i], py[i], col[i], px[j], py[j], col[j], UI_DEPTH);
+	}
+}
+
+static void seam(float x0, float y0, float x1, float y1, float w, u32 c) /* line as a thin quad */
+{
+	float dx = x1 - x0, dy = y1 - y0, l = sqrtf(dx * dx + dy * dy);
+	float nx = -dy / l * w / 2, ny = dx / l * w / 2;
+	C2D_DrawTriangle(x0 + nx, y0 + ny, c, x1 + nx, y1 + ny, c, x0 - nx, y0 - ny, c, UI_DEPTH);
+	C2D_DrawTriangle(x1 + nx, y1 + ny, c, x1 - nx, y1 - ny, c, x0 - nx, y0 - ny, c, UI_DEPTH);
+}
+
+static void draw_label(int k, int state, float dy)
+{
 	bool live = state == S_READY;
-	unsigned base = b->col;
-	if (state == S_POOR)
-		base = mixc(base, 0x50566a, 0.72f); /* greyed: the gauge does not pay for it */
-	else if (state == S_LOCKED)
-		base = mixc(base, 0x182038, 0.5f); /* darkened: paid for, but no hyper now (hit, an Accel running) */
-	float dy = pressed ? 3 : 0;
-	/* drop shadow */
-	panel_chamfer(x0 + 1, y0 + 4, x1 + 1, y1 + 4 - dy, c, 0xa0000000, 0x60000000);
-	y0 += dy;
-	y1 += dy - (pressed ? 1 : 0);
-	/* rim (gold on the Accel button), body gradient, gloss, slanted accent band */
-	unsigned rimt = k == HT_CENTER ? 0xfff6dc6a : mixc(base, 0xffffff, 0.7f),
-	         rimb = k == HT_CENTER ? 0xffa86a10 : mixc(base, 0x000000, 0.45f);
-	if (pressed)
-		rimt = 0xfffff4a0, rimb = 0xffe0b030;
-	if (!live)
-		rimt = mixc(rimt, 0x606878, 0.6f), rimb = mixc(rimb, 0x303440, 0.6f);
-	panel_chamfer(x0, y0, x1, y1, c, 0xff000000 | rimt, 0xff000000 | rimb);
-	unsigned bt = mixc(base, 0xffffff, pressed ? 0.05f : 0.28f), bb = mixc(base, 0x000000, pressed ? 0.6f : 0.45f);
-	panel_chamfer(x0 + 3, y0 + 3, x1 - 3, y1 - 3, c - 1.5f, 0xff000000 | bt, 0xff000000 | bb);
-	float my = y0 + (y1 - y0) * 0.46f;
-	gloss(x0 + 4, y0 + 4, x1 - 4, my, c - 2.5f, pressed ? 0.12f : live ? 0.30f : 0.16f);
-	{
-		float s = (y1 - y0) * 0.35f, bx = x1 - (x1 - x0) * 0.32f;
-		u32 a = ui_c2d(argb(live ? 0.10f : 0.05f, 0xffffff));
-		C2D_DrawTriangle(bx, y0 + 4, a, bx + 14, y0 + 4, a, bx - s, y1 - 4, a, UI_DEPTH);
-		C2D_DrawTriangle(bx + 14, y0 + 4, a, bx - s + 14, y1 - 4, a, bx - s, y1 - 4, a, UI_DEPTH);
-	}
-	/* Accel tag */
-	if (k == HT_CENTER) {
-		const char *cv = pl_cats ? kv_get(pl_cats, "COMMANDLIST_CATEGORY_ACCELHYPER") : NULL;
-		char cat[48];
-		snprintf(cat, sizeof cat, "%s", cv ? cv : "Accel Hyper");
-		cat[strcspn(cat, "\n")] = 0; /* the file's last key: "[EOF]" follows */
-		ui_rect(x0 + 8, y0 + 6, x1 - 8, y0 + 18, argb(0.45f, 0x000000));
-		text_draw(FONT_MENU, cat, (x0 + x1) / 2, y0 + 12, TEXT_CENTER,
-		          ui_c2d(argb(live ? 1.0f : 0.6f, 0xffe27a)), 0.6f, x1 - x0 - 20);
-	}
-	/* name */
 	const slot_label *l = &lab[k];
 	float lx0, ly0, lx1, ly1;
 	label_area(k, &lx0, &ly0, &lx1, &ly1);
@@ -404,36 +404,115 @@ static void draw_button(int k, int state, bool pressed)
 	ly1 += dy;
 	float th = l->lh * (float)l->lines;
 	float ty = (ly0 + ly1) / 2 - th / 2 + l->lh / 2;
-	text_shadowed(l->font, l->text, (lx0 + lx1) / 2, ty, TEXT_CENTER, live ? 0xffffff : 0xb8bcc8, live ? 1.0f : 0.8f,
+	text_shadowed(l->font, l->text, (lx0 + lx1) / 2, ty, TEXT_CENTER, live ? 0xffffff : 0xc4c8d4, live ? 1.0f : 0.85f,
 	              l->scale, lx1 - lx0);
 	if (l->alt[0])
 		text_draw(FONT_SYSTEM, l->alt, (lx0 + lx1) / 2, ly1 + 6, TEXT_CENTER,
 		          ui_c2d(argb(live ? 0.9f : 0.6f, 0xffffff)), 0.68f, lx1 - lx0);
 	/* cost gems: lit while the gauge pays for it */
-	const ht_move *m = ht_slot(pl_chara, k);
-	int n = (int)(m->cost + 0.5f);
-	bool paid = state != S_POOR;
-	if (b->y1 - b->y0 > 70) {
-		float gx = (x0 + x1) / 2 - (float)(n - 1) * 7, gy = y1 - 11;
-		for (int i = 0; i < n; i++)
-			gem(gx + 14 * (float)i, gy, 4.5f, paid);
-	} else {
-		float gx = x1 - 20 - (float)(n - 1) * 7, gy = (y0 + y1) / 2;
-		for (int i = 0; i < n; i++)
-			gem(gx + 14 * (float)i, gy, 5.0f, paid);
-	}
+	int n = (int)(ht_slot(pl_chara, k)->cost + 0.5f);
+	float gx = area[k].gx - (float)(n - 1) * 7, gy = area[k].gy + dy;
+	for (int i = 0; i < n; i++)
+		gem(gx + 14 * (float)i, gy, 4.5f, state != S_POOR);
 }
 
-/* Background: the menus' bottom gradient + the player's full-body art, faint. */
-void panel_backdrop(float a)
+static unsigned state_base(int k, int state)
+{
+	unsigned base = slot_col[k];
+	if (state == S_POOR)
+		return mixc(base, 0x50566a, 0.72f); /* greyed: the gauge does not pay for it */
+	if (state == S_LOCKED)
+		return mixc(base, 0x182038, 0.5f); /* darkened: paid for, but no hyper now (hit, an Accel running) */
+	return base;
+}
+
+/* One quadrant: translucent tinted triangle (the art shows through), light toward the screen edge and darker
+ * toward the crossing, gloss along the outer edge, bright seams along the diagonals. */
+static void draw_quadrant(int k, int state, bool pressed)
+{
+	float x[3], y[3];
+	tri_of(k, x, y);
+	if (state == S_EMPTY) { /* no such hyper: a dim, quiet quadrant, the art stays visible */
+		u32 e = ui_c2d(0x40080c1c), c = ui_c2d(0x70080c1c);
+		C2D_DrawTriangle(x[0], y[0], e, x[1], y[1], e, x[2], y[2], c, UI_DEPTH);
+		u32 s = ui_c2d(0x30ffffff);
+		seam(x[0], y[0], x[2], y[2], 1, s);
+		seam(x[1], y[1], x[2], y[2], 1, s);
+		text_draw(FONT_MENUBIG, "-", (area[k].x0 + area[k].x1) / 2, (area[k].y0 + area[k].y1) / 2, TEXT_CENTER,
+		          ui_c2d(0x50ffffff), 1.0f, 0);
+		return;
+	}
+	bool live = state == S_READY || pressed; /* pressed: the hyper just started, show the touch, not the lock */
+	unsigned base = pressed ? slot_col[k] : state_base(k, state);
+	float a = pressed ? 0.92f : live ? 0.74f : 0.62f;
+	unsigned outer = mixc(base, 0xffffff, pressed ? 0.45f : 0.22f), inner = mixc(base, 0x000000, pressed ? 0.25f : 0.5f);
+	u32 co = ui_c2d(argb(a, outer)), ci = ui_c2d(argb(a + 0.12f > 1 ? 1 : a + 0.12f, inner));
+	C2D_DrawTriangle(x[0], y[0], co, x[1], y[1], co, x[2], y[2], ci, UI_DEPTH);
+	/* gloss band along the outer edge */
+	float t = 0.30f;
+	float x3 = x[1] + (x[2] - x[1]) * t, y3 = y[1] + (y[2] - y[1]) * t, x4 = x[0] + (x[2] - x[0]) * t,
+	      y4 = y[0] + (y[2] - y[0]) * t;
+	u32 g0 = ui_c2d(argb(pressed ? 0.06f : live ? 0.22f : 0.10f, 0xffffff)), g1 = ui_c2d(argb(0, 0xffffff));
+	C2D_DrawTriangle(x[0], y[0], g0, x[1], y[1], g0, x3, y3, g1, UI_DEPTH);
+	C2D_DrawTriangle(x[0], y[0], g0, x3, y3, g1, x4, y4, g1, UI_DEPTH);
+	/* rims along the diagonals (the seams) */
+	unsigned rim = pressed ? 0xfff4a0 : mixc(base, 0xffffff, live ? 0.65f : 0.35f);
+	u32 rc = ui_c2d(argb(live || pressed ? 0.95f : 0.6f, rim));
+	float w = pressed ? 3 : 2;
+	seam(x[0], y[0], x[2], y[2], w, rc);
+	seam(x[1], y[1], x[2], y[2], w, rc);
+	draw_label(k, state, pressed ? 2 : 0);
+}
+
+/* The Accel Hyper: a hexagon with a gold rim on the crossing. */
+static void draw_center(int state, bool pressed)
+{
+	const int k = HT_CENTER;
+	if (state == S_EMPTY) { /* no Accel Hyper (Sumika's second form): a dark plug, no label */
+		hexagon(CX, CY, HEX_R, 0xc0303848, 0xc0181c28);
+		hexagon(CX, CY, HEX_R - 3, 0xd0101420, 0xd0080a12);
+		text_draw(FONT_MENUBIG, "-", CX, CY, TEXT_CENTER, ui_c2d(0x50ffffff), 1.0f, 0);
+		return;
+	}
+	bool live = state == S_READY || pressed;
+	unsigned base = pressed ? mixc(slot_col[k], 0xffffff, 0.15f) : state_base(k, state);
+	float dy = pressed ? 2 : 0;
+	hexagon(CX + 1, CY + 4, HEX_R + 1, 0x90000000, 0x60000000); /* shadow */
+	unsigned rt = pressed ? 0xffffe0 : 0xf6dc6a, rb = pressed ? 0xfff070 : 0xa86a10;
+	if (!live && !pressed)
+		rt = mixc(rt, 0x606878, 0.5f), rb = mixc(rb, 0x303440, 0.5f);
+	hexagon(CX, CY + dy, HEX_R, 0xff000000 | rt, 0xff000000 | rb);
+	hexagon(CX, CY + dy, HEX_R - 3.5f, 0xff000000 | mixc(base, 0xffffff, pressed ? 0.05f : 0.28f),
+	        0xff000000 | mixc(base, 0x000000, pressed ? 0.6f : 0.45f));
+	/* gloss: upper half */
+	{
+		float r = HEX_R - 4.5f, h = r * 0.866f;
+		u32 g0 = ui_c2d(argb(pressed ? 0.10f : live ? 0.28f : 0.14f, 0xffffff)), g1 = ui_c2d(argb(0.03f, 0xffffff));
+		float cy = CY + dy;
+		C2D_DrawTriangle(CX - r / 2, cy - h, g0, CX + r / 2, cy - h, g0, CX + r, cy, g1, UI_DEPTH);
+		C2D_DrawTriangle(CX - r / 2, cy - h, g0, CX + r, cy, g1, CX - r, cy, g1, UI_DEPTH);
+	}
+	const char *cv = pl_cats ? kv_get(pl_cats, "COMMANDLIST_CATEGORY_ACCELHYPER") : NULL;
+	char cat[48];
+	snprintf(cat, sizeof cat, "%s", cv ? cv : "Accel Hyper");
+	cat[strcspn(cat, "\n")] = 0; /* the file's last key: "[EOF]" follows */
+	text_draw(FONT_MENU, cat, CX, CY - 29 + dy, TEXT_CENTER, ui_c2d(argb(live ? 1.0f : 0.6f, 0xffe27a)), 0.55f, 62);
+	draw_label(k, state, dy);
+}
+
+/* Background: the menus' bottom gradient + the player's full-body art. */
+static void backdrop(float a, float art)
 {
 	ui_rect_grad(0, 0, BW, BH, argb(a, 0x1a2c5a), argb(a, 0x1a2c5a), argb(a, 0x05070f), argb(a, 0x05070f));
 	if (pl_art.t.ok)
-		bgfx_draw(&pl_art, 0, 0, 0x7ff, 0x7ff, 40, 0, 280, 240, argb(0.30f * a, 0xffffff), 1, false);
+		bgfx_draw(&pl_art, 0, 0, 0x7ff, 0x7ff, 28, -14, 292, 250, argb(art, 0xffffff), 1, false);
 	/* soft vignette at the bottom so the gauge reads */
-	ui_rect_grad(0, 180, BW, BH, argb(0, 0x05070f), argb(0, 0x05070f), argb(0.8f * a, 0x05070f),
-	             argb(0.8f * a, 0x05070f));
+	ui_rect_grad(0, 196, BW, BH, argb(0, 0x05070f), argb(0, 0x05070f), argb(0.85f * a, 0x05070f),
+	             argb(0.85f * a, 0x05070f));
 }
+
+/* the move list draws it fainter: the cards must read over it */
+void panel_backdrop(float a) { backdrop(a, 0.30f * a); }
 
 /* ================================================================ cache + per-frame draw */
 
@@ -566,10 +645,13 @@ static void draw_static(const aos_world *w)
 	panel_key k;
 	key_of(w, &k);
 	ui_blend_reset();
-	panel_backdrop(1.0f);
-	if (pl_on)
+	backdrop(1.0f, 0.85f); /* the character stands clearly behind the translucent quadrants */
+	if (pl_on) {
 		for (int i = 0; i < HT_NSLOT; i++)
-			draw_button(i, k.state[i], k.pressed == i);
+			if (i != HT_CENTER)
+				draw_quadrant(i, k.state[i], k.pressed == i);
+		draw_center(k.state[HT_CENTER], k.pressed == HT_CENTER);
+	}
 	draw_gauge_frame(k.level);
 	if (k.lines && tbuf) {
 		ui_rect(0, 150, BW, BH, 0xc0000000);

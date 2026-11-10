@@ -85,5 +85,10 @@ void selx_name_plate(int id, float cx, float cy, float hw, float hh, unsigned ar
 void selx_ring(bool p2, float cx, float cy, float a, int ring);
 void selx_stage_name(int id, float cx, float cy, float k, unsigned argb);
 void selx_arrows(float xl, float xr, float y, unsigned argb);
+/* Bottom-screen character card of the selects: the character's large art (result art in the palette of
+ * colopt; slides/fades on change) on the left, name plate + stats on the right. One state per screen. */
+enum { SELX_CARD_ARC, SELX_CARD_VS, SELX_CARD_NET, SELX_CARDS };
+void selx_card(int which, int chara, int colopt);
+bool selx_card_hit(int x, int y); /* touch on the art */
 
 #endif

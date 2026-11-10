@@ -132,8 +132,11 @@ static void stats_panel(int id, float x, float y, float a) /* FUN_007a49d0, bott
 	}
 }
 
+static void card_reset_all(void);
+
 static void load_select_textures(void)
 {
+	card_reset_all();
 	static const bg_id need[] = {BG_SLBGP, BG_CHARA00, BG_CHARA01, BG_CHARA02, BG_ICON00, BG_ICON01, BG_NAME0,
 	                             BG_SELSYS, BG_LOCKB, BG_LOCKBB, BG_LOCKR, BG_LOCKRB, BG_BAREMPTY, BG_BAR25,
 	                             BG_BAR50, BG_BAR75, BG_BARFULL, BG_RATED, BG_RATEC, BG_RATEB, BG_RATEA, BG_RATES,
@@ -178,21 +181,8 @@ static void arc_touch(void)
 			a->cmd = k;
 			audio_se(2, AUDIO_SE_CD_DEFAULT);
 		}
-	} else if (a->sub == ARC_CHAR) {
-		int col = (tx - 4) / 40, row = (ty - 26) / 40;
-		if (tx < 4 || ty < 26 || col > 4 || row > 2)
-			return;
-		int i = row * 5 + col;
-		if (i >= a->n)
-			return;
-		if (i == a->cursor)
-			g_min.st[MI_OK] = MIN_PRESSED;
-		else {
-			a->d74 = i > a->cursor ? -1.0f : 1.0f;
-			a->cc0 = 0;
-			a->cursor = i;
-			audio_se(2, AUDIO_SE_CD_DEFAULT);
-		}
+	} else if (a->sub == ARC_CHAR && selx_card_hit(tx, ty)) { /* tap the character art = confirm */
+		g_min.st[MI_OK] = MIN_PRESSED;
 	}
 }
 
@@ -279,24 +269,15 @@ static void arc_draw_bottom(void)
 		}
 		return;
 	}
-	/* character grid (pool order, 5 columns) + stats panel */
-	pill_label(12, 0x97cbff, g_setup.mode == MODE_STORY ? tr_id(0x8c) : tr_id(0x8b), 1, BW);
-	for (int i = 0; i < a->n; i++) {
-		float x = 4 + 40 * (float)(i % 5) + 20, y = 26 + 40 * (float)(i / 5) + 20;
-		bool sel = i == a->cursor;
-		if (sel)
-			ui_rect(x - 20, y - 20, x + 20, y + 20, 0x80ffffff);
-		draw_icon(a->pool[i], x, y, 18, sel ? WHITE : 0xffa0a0a0);
-		if (cleared(a->pool[i]))
-			bgfx_draw_c(bg_get(BG_STAR), 0, 0, 0x3f, 0x3f, x + 12, y - 13, 6, 6, 0, WHITE, 1, false);
-	}
+	/* character card: the highlighted character's art + stats (the top-screen carousel picks) */
 	int c = arcsel_char();
-	stats_panel(c, 208, 30, 1.0f);
-	const char *nk = text_id_key(0x1f8 + c - 3);
-	text_draw(FONT_MENUBIG, nk ? tr(nk) : "", 104, 160, TEXT_CENTER, c2d(WHITE), 1.0f, 200);
-	if (cleared(c))
-		text_draw(FONT_SYSTEM, g_setup.mode == MODE_STORY ? "STORY CLEARED" : "CLEARED (no continue)", 104, 180,
-		          TEXT_CENTER, c2d(0xffffe080), 0.8f, 200);
+	selx_card(SELX_CARD_ARC, c, 0);
+	pill_label(12, 0x97cbff, g_setup.mode == MODE_STORY ? tr_id(0x8c) : tr_id(0x8b), 1, BW);
+	if (cleared(c)) {
+		bgfx_draw_c(bg_get(BG_STAR), 0, 0, 0x3f, 0x3f, BW - 10, 12, 7, 7, 0, WHITE, 1, false);
+		text_draw(FONT_SYSTEM, g_setup.mode == MODE_STORY ? "STORY CLEARED" : "CLEARED", BW - 20, 12, TEXT_RIGHT,
+		          c2d(0xffffe080), 0.8f, 0);
+	}
 }
 
 static const scene_def arc_scene = {
@@ -450,6 +431,113 @@ void selx_arrows(float xl, float xr, float y, unsigned argb) /* FUN_007a6f90 opt
 	bgfx_draw_c(bg_get(BG_SELSYS), 0x280, 0x118, 0x2bb, 0x153, xl, y, 7, 7, 0, argb, 1, false);
 	bgfx_draw_c(bg_get(BG_SELSYS), 0x334, 0x118, 0x36f, 0x153, xr, y, 7, 7, 0, argb, 1, false);
 }
+
+/* ---------------- bottom-screen character card (every select): large art left, stats right */
+#define CARD_X0 (-6.0f)
+#define CARD_X1 160.0f
+#define CARD_Y0 24.0f
+#define CARD_Y1 240.0f
+/* result art res_chr (2048 px): head x, crop top, crop height (from the alpha bounds: head to hips) */
+static const short card_crop[19][3] = {
+	[3] = {1043, 140, 1063}, [4] = {1177, 88, 1101}, [5] = {1128, 112, 1046}, [6] = {1064, 0, 1174},
+	[7] = {1048, 109, 1076}, [8] = {1063, 6, 1164}, [9] = {1047, 88, 1107}, [10] = {1156, 220, 974},
+	[11] = {1025, 47, 1130}, [12] = {1094, 148, 1047}, [13] = {1012, 167, 1028}, [14] = {1340, 13, 1129},
+	[15] = {1070, 0, 1257}, [16] = {1048, 125, 1070}, [17] = {1100, 80, 1081}, [18] = {1100, 80, 1081},
+};
+typedef struct {
+	bgfx art[2];
+	int key[2];  /* chara * 4 + palette, -1 none */
+	bool res[2]; /* res_chr art (else the select portrait strip) */
+	int cur;
+	float t;     /* 0 -> 1 after a change */
+} sel_card;
+static sel_card cards[SELX_CARDS];
+
+static void card_reset_all(void)
+{
+	for (int i = 0; i < SELX_CARDS; i++) {
+		cards[i].key[0] = cards[i].key[1] = -1;
+		cards[i].t = 1;
+	}
+}
+
+static void card_art(const sel_card *c, int k, float dx, float a)
+{
+	if (a <= 0 || c->key[k] < 0)
+		return;
+	int ch = c->key[k] / 4;
+	float w = CARD_X1 - CARD_X0, h = CARD_Y1 - CARD_Y0;
+	unsigned col = a8(a) | 0xffffff;
+	if (c->res[k]) {
+		float hx = card_crop[ch][0], top = card_crop[ch][1], sh = card_crop[ch][2], sw = sh * w / h;
+		float sx = hx - sw / 2;
+		sx = sx < 0 ? 0 : sx + sw > 2048 ? 2048 - sw : sx;
+		bgfx_draw(&c->art[k], sx, top, sx + sw, top + sh, CARD_X0 + dx, CARD_Y0, CARD_X1 + dx, CARD_Y1, col, 1, false);
+	} else { /* random / no result art: the select portrait strip, upper part */
+		float sx, sy;
+		bg_id t;
+		portrait_rect(ch < 1 ? 1 : ch, &sx, &sy, &t);
+		bgfx_draw(bg_get(t), sx, sy, sx + 319, sy + 320 * h / w, CARD_X0 + dx, CARD_Y0, CARD_X1 + dx, CARD_Y1, col, 1,
+		          false);
+	}
+}
+
+static void card_stats(int id, float x, float y, float a) /* FUN_007a49d0's bars, card layout */
+{
+	if (a <= 0)
+		return;
+	unsigned wa = a8(a) | 0xffffff;
+	draw_name_plate(id, x + 70, y, 70, 17.5f, wa);
+	if (id < 3)
+		return;
+	sel_stats st = sel_char_stats(id);
+	char buf[64];
+	snprintf(buf, sizeof buf, "%s %s", tr_id(0x1ea), tr_id(0x1eb + st.diff));
+	text_draw(FONT_SYSTEM, buf, x, y + 22, TEXT_LEFT, c2d(a8(a) | 0xffe8f0ff), 0.8f, 140);
+	static const bg_id fill[5] = {BG_COUNT, BG_BAR25, BG_BAR50, BG_BAR75, BG_BARFULL};
+	static const bg_id rate[5] = {BG_RATED, BG_RATEC, BG_RATEB, BG_RATEA, BG_RATES};
+	for (int k = 0; k < 4; k++) {
+		float yk = y + 38 + 30 * (float)k;
+		text_draw(FONT_SYSTEM, tr_id(0x1ee + k), x, yk, TEXT_LEFT, c2d(wa), 0.8f, 110);
+		float by = yk + 8;
+		bgfx_draw(bg_get(BG_BAREMPTY), 0, 0, 0xbc, 0x28, x, by, x + 104, by + 18, wa, 1, false);
+		int r = st.rank[k] < 0 ? 0 : st.rank[k] > 4 ? 4 : st.rank[k];
+		if (fill[r] != BG_COUNT)
+			bgfx_draw(bg_get(fill[r]), 0xe, 0, 0xbc, 0x28, x + 7, by + 1, x + 104, by + 17, wa, 1, false);
+		bgfx_draw_c(bg_get(rate[r]), 0, 0, 0x80, 0x80, x + 118, by + 9, 10, 10, 0, wa, 1, false);
+	}
+}
+
+void selx_card(int which, int chara, int colopt)
+{
+	sel_card *c = &cards[which];
+	int pal = chara >= 3 ? sel_color_resolve(chara, colopt) : 0;
+	int key = chara * 4 + pal;
+	if (key != c->key[c->cur]) {
+		bool first = c->key[c->cur] < 0;
+		int k = first ? c->cur : c->cur ^ 1; /* the new art goes into the other slot; the old one slides out */
+		char folder[32], name[64];
+		sel_palette_folder(folder, sizeof folder, chara, pal);
+		snprintf(name, sizeof name, "reschr_%s", folder);
+		c->res[k] = chara >= 3 && chara < 19 && bgfx_exists(name) && bgfx_load(&c->art[k], name, 0, 0, 0.25f);
+		c->key[k] = key;
+		c->cur = k;
+		c->t = 0;
+	}
+	c->t += 0.125f;
+	if (c->t > 1)
+		c->t = 1;
+	float t = c->t, e = 1 - (1 - t) * (1 - t); /* ease out */
+	/* art panel: soft light behind the art, old art slides out left, new one slides in from the right */
+	ui_rect_grad(0, CARD_Y0, CARD_X1 + 10, CARD_Y1, 0x30ffffff, 0x00ffffff, 0x00ffffff, 0x18ffffff);
+	card_art(c, c->cur ^ 1, -36 * e, 1 - t);
+	card_art(c, c->cur, 36 * (1 - e), e);
+	ui_rect_grad(CARD_X1 - 46, CARD_Y0, CARD_X1 + 12, CARD_Y1, 0x001a2c5a, 0xff1a2c5a, 0xff05070f, 0x0005070f);
+	ui_hline(0, BW, CARD_Y0, 0x60ffffff);
+	card_stats(chara, 172 + 14 * (1 - e), 40, e);
+}
+
+bool selx_card_hit(int x, int y) { return x < CARD_X1 && y >= CARD_Y0; }
 
 static void stage_cards(void) /* FUN_007a91f0, as a 2D projection (B.6) */
 {
@@ -642,6 +730,14 @@ static void vs_draw_bottom(void)
 	bottom_bg();
 	if (v->leave)
 		return;
+	if (v->sub == VS_CHARS && v->ctrl[0] >= 0 && v->slot[v->ctrl[0]] == SLOT_CHOOSE) {
+		/* the controlled slot is choosing on the top-screen wheel: its character card */
+		int s = v->ctrl[0];
+		selx_card(SELX_CARD_VS, v->chara[s], v->color[s]);
+		int lid = g_setup.input[s] == INPUT_CPU ? 0x1d0 : 0x1ce + s;
+		pill_label(12, s ? 0xff9c9c : 0x97cbff, tr_id(lid), 1, BW);
+		return;
+	}
 	if (v->sub == VS_CHARS) {
 		for (int p = 0; p < 2; p++) {
 			float x0 = 160 * (float)p;
@@ -820,17 +916,27 @@ static float glyph_shoulder(float x, float cy, char letter, float a)
 }
 
 /* touch hyper button: a small map of the bottom panel with the move's button lit */
+/* touch hyper button: a small map of the bottom panel (X-cut quadrants + the Accel hexagon) with the move's
+ * button lit */
 static float glyph_touch(float x, float cy, int slot, float a)
 {
-	const float w = 26, h = 18, sx = w / 320.0f, sy = h / 240.0f, y0 = cy - h / 2;
+	const float w = 26, h = 18, y0 = cy - h / 2, mx = x + w / 2, my = y0 + h / 2;
 	panel_chamfer(x - 1, y0 - 1, x + w + 1, y0 + h + 1, 3, a8(a) | 0xc8d0e0, a8(a) | 0x707890);
 	ui_rect(x, y0, x + w, y0 + h, a8(a) | 0x0a1024);
-	for (int k = 0; k < HT_NSLOT; k++) {
-		float bx0, by0, bx1, by1;
-		panel_slot_rect(k, &bx0, &by0, &bx1, &by1);
-		unsigned c = k == slot ? panel_slot_color(k) : 0x3a4258;
-		ui_rect(x + bx0 * sx + 0.5f, y0 + by0 * sy + 0.5f, x + bx1 * sx - 0.5f, y0 + by1 * sy - 0.5f, a8(a) | c);
+	/* quadrant k: outer corners, inset 0.6 px from the diagonals */
+	const float qx[4][2] = {{x + 1, x + w - 1}, {x, x}, {x + w, x + w}, {x + 1, x + w - 1}},
+	            qy[4][2] = {{y0, y0}, {y0 + 1, y0 + h - 1}, {y0 + 1, y0 + h - 1}, {y0 + h, y0 + h}};
+	const float ax[4] = {0, -1, 1, 0}, ay[4] = {-1, 0, 0, 1};
+	for (int k = 0; k < 4; k++) {
+		u32 c = c2d(a8(a) | (k == slot ? panel_slot_color(k) : 0x3a4258));
+		C2D_DrawTriangle(qx[k][0], qy[k][0], c, qx[k][1], qy[k][1], c, mx + ax[k], my + ay[k], c, UI_DEPTH);
 	}
+	u32 cc = c2d(a8(a) | (slot == HT_CENTER ? panel_slot_color(HT_CENTER) : 0x4a5268)), rim = c2d(a8(a) | 0x0a1024);
+	const float r = 4.5f, hr = 3.9f;
+	C2D_DrawTriangle(mx - r - 1, my, rim, mx + r + 1, my, rim, mx, my - hr - 1, rim, UI_DEPTH);
+	C2D_DrawTriangle(mx - r - 1, my, rim, mx + r + 1, my, rim, mx, my + hr + 1, rim, UI_DEPTH);
+	C2D_DrawTriangle(mx - r, my, cc, mx + r, my, cc, mx, my - hr, cc, UI_DEPTH);
+	C2D_DrawTriangle(mx - r, my, cc, mx + r, my, cc, mx, my + hr, cc, UI_DEPTH);
 	return w;
 }
 

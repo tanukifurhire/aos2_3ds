@@ -267,20 +267,8 @@ static void touch(void)
 			SE(2);
 		}
 	} else if (N.st == NS_CHARS) {
-		int col = (tx - 4) / 40, row = (ty - 26) / 40;
-		if (tx < 4 || ty < 26 || col > 4 || row > 3)
-			return;
-		int i = row * 5 + col;
-		if (i >= v->n)
-			return;
-		if (i == N.cur)
+		if (selx_card_hit(tx, ty)) /* tap the character art = confirm */
 			g_min.st[MI_OK] = MIN_PRESSED;
-		else {
-			v->d74[N.me] = i > N.cur ? 1.0f : -1.0f;
-			v->cc0[N.me] = 0;
-			N.cur = i;
-			SE(2);
-		}
 	} else if (N.st == NS_OPTIONS) {
 		int r = ty >= 96 && ty < 186 ? (ty - 96) / 30 : -1;
 		if (r < 0)
@@ -314,25 +302,13 @@ static void chars_update(void)
 {
 	vssel_state *v = &g_vs;
 	int n = v->n, d = 0;
-	/* grid of 5 columns (bottom screen): left/right step, up/down jump a row */
-	if (min_pressed(MI_LEFT))
+	/* the top-screen wheel: up/left = previous, down/right = next (VS Select: up/down) */
+	if (min_pressed(MI_UP) || min_pressed(MI_LEFT))
 		d = -1;
-	if (min_pressed(MI_RIGHT))
+	if (min_pressed(MI_DOWN) || min_pressed(MI_RIGHT))
 		d = 1;
-	if (min_pressed(MI_UP))
-		d = -5;
-	if (min_pressed(MI_DOWN))
-		d = 5;
 	if (d) {
-		int c = N.cur + d;
-		if (d == 5 || d == -5) {
-			int rows = (n + 4) / 5, col = N.cur % 5, row = (N.cur / 5 + (d > 0 ? 1 : -1) + rows) % rows;
-			c = row * 5 + col;
-			if (c >= n)
-				c = d > 0 ? col : n - 1;
-		} else {
-			c = (c + n) % n;
-		}
+		int c = (N.cur + d + n) % n;
 		N.cur = c;
 		v->d74[N.me] = d > 0 ? 1.0f : -1.0f;
 		v->cc0[N.me] = 0;
@@ -712,17 +688,8 @@ static void draw_mode_bottom(void)
 static void draw_chars_bottom(void)
 {
 	vssel_state *v = &g_vs;
+	selx_card(SELX_CARD_NET, v->pool[N.cur], N.color);
 	header(tr_id(0x1ce + N.me), role_name());
-	for (int i = 0; i < v->n; i++) {
-		float x = 4 + 40 * (float)(i % 5) + 20, y = 26 + 40 * (float)(i / 5) + 20;
-		bool sel = i == N.cur;
-		if (sel)
-			ui_rect(x - 20, y - 20, x + 20, y + 20, 0x80ffffff);
-		selx_icon(v->pool[i], x, y, 18, sel ? WHITE : 0xffa0a0a0);
-	}
-	int c = v->pool[N.cur];
-	selx_stats(c, 208, 30, 1.0f);
-	text_draw(FONT_MENUBIG, char_name(c), 262, 180, TEXT_CENTER, c2d(WHITE), 1.0f, 108);
 }
 
 static const char *color_value(int c, int opt)
