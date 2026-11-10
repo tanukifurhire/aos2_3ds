@@ -1,0 +1,29 @@
+# Config menu rows (Menu state 600). Update FUN_00647fd0, draw FUN_00649210, help line FUN_00647a40 (ANNOUNCE id), apply/save FUN_00647d20 (+FUN_004dbce0 save). Defaults: ConfigData Init FUN_004db370. Cursor DAT_009b1640 0..26, Up/Down wrap (SE 2). Left = DAT_009b16dc, Right = DAT_009b16d8; every value change SE 4. Bool rows: Left sets 1 (ENABLED, drawn left), Right sets 0 (DISABLED).
+row	label_text_id	label_key	storage	range	default	left/right	announce_id	3ds
+0	0xad	MENU_CONFIG_LANGUAGE	DAT_009b2044 (copy of DAT_00881ec0, applied on exit)	0..7 (0 en,1 jp,2 chs,3 cht,4 ptbr,5 sp,6 ko,7 ru; value text ids 0xae..0xb5)	Steam country FUN_00597570	wrap	0xd	yes (if text assets shipped)
+1	0xb6	MENU_CONFIG_SCREENMODE	DAT_009b2048 (copy of DAT_00881eb2)	0 windowed? /1 (UNVERIFIED which)	0 (2 when desktop 1280x800)	wrap	0xe	no
+2	0xb9	MENU_CONFIG_RESOLUTION	DAT_009b204c index into FUN_0056fc90 list	0..n-1	from DAT_00881eb4/eb8	wrap	0xf	no
+3	0xba	MENU_CONFIG_32BITMODE	DAT_00881ea5	bool	1	L=1 R=0	0x11	no
+4	0xbb	MENU_CONFIG_32BITTEXTURES	DAT_00881ea6	bool	1	L=1 R=0	0x10	no
+5	0xbc	MENU_CONFIG_ADVANCEDEFFECTS	DAT_00881ebc	bool	1	L=1 R=0	0x12	maybe (perf toggle)
+6	0xbd	MENU_CONFIG_REQUIREDWINS	DAT_00881f60	0..2 (rounds to win = v+1, DAT_0087faf0 in Menu Exit)	1	wrap; clears tournament DAT_00881f70	0x13	yes
+7	0xbe	MENU_CONFIG_TIMELIMIT	DAT_00881eac	0..3 = 90/180/270/inf(999) s (Game Init FUN_005f4650 -> DAT_00885974; arcade/story always 180, training 999)	1	wrap; clears f70	0x14	yes
+8	0xc0	MENU_CONFIG_AUTOSAVEREPLAY	DAT_00881f58	0 always,1 online,2 disabled	2	clamp	0x15	only with replays
+9	0xc4	MENU_CONFIG_SFXVOLUME	DAT_00881eaa	0..10	5	clamp, FUN_007bc800 apply	0x16	yes
+10	0xc5	MENU_CONFIG_BGMVOLUME	DAT_00881ea8	0..10	5	clamp, FUN_004bf2e0 apply	0x17	yes
+11	0xc6	MENU_CONFIG_PLAYAUDIOWHENINACTIVE	DAT_00881f5c	0 all,1 SFX only,2 BGM only,3 none	0	clamp	0x18	no
+12	0xcb	MENU_CONFIG_CONTROLS	-> state 0x280 key config (FUN_0064fed0 / draw FUN_00651260); copies DAT_00881ec4[0x25] to DAT_009b1758	confirm only (SE 0, announce 0x28)	-	-	0x19	yes (3DS button remap)
+13	0xcc	MENU_CONFIG_HITSTUNMETER	DAT_00881f64	bool	1	clears f70	0x1a	yes
+14	0xcd	MENU_CONFIG_HIGHCONTRASTMODE	DAT_00881f65	bool	0	enable also sets f74=1; clears f70	0x1b	yes
+15	0xce	MENU_CONFIG_P1CONTRASTCOLOR	DAT_00881f68	0..5 red,green,blue,cyan,magenta,yellow (0xd0..0xd5)	2 (blue)	wrap; clears f70	0x1c	yes
+16	0xcf	MENU_CONFIG_P2CONTRASTCOLOR	DAT_00881f6c	0..5	0 (red)	wrap; clears f70	0x1d	yes
+17	0xd6	MENU_CONFIG_TOURNAMENTMODE	DAT_00881f70	bool; enabling presets f60=0,eac=1,f64=1,f65=0,f68=2,f6c=0,f71=1,f74=0,f75=0,f77=0,f78=1	0	L enable / R disable	0x1e	yes (Match item turns orange 0xff8c00 / 0xa45a00 in FUN_00653810)
+18	0xd7	MENU_CONFIG_PAUSEHOLD	DAT_00881f71	bool	1	disable clears f70	0x1f	yes
+19	0xd8	MENU_CONFIG_PAUSEMENUONSTART	DAT_00881f72	bool	1	-	0x20	yes
+20	0xd9	MENU_CONFIG_REPLAYMENUONSTART	DAT_00881f73	bool	1	-	0x21	only with replays
+21	0xda	MENU_CONFIG_GREYBACKGROUND	DAT_00881f74	bool	0	enable clears f70; disable also clears f65	0x22	yes
+22	0xdb	MENU_CONFIG_ARMORPOINTS	DAT_00881f75	bool	0	enable clears f70	0x23	yes
+23	0xdc	MENU_CONFIG_ARMORPOINTSASPERCENTAGE	DAT_00881f76	bool	0	-	0x24	yes
+24	0xdd	MENU_CONFIG_ATTACKINDICATOR	DAT_00881f77	bool	0	enable clears f70	0x25	yes
+25	0xde	MENU_CONFIG_ATTACKINDICATORONMIRRORMATCHES	DAT_00881f78	bool	1	disable clears f70	0x26	yes
+26	0xdf	MENU_CONFIG_EXIT	confirm or cancel here -> FUN_00647d20 (apply res/lang, save, state 100), SE 0	-	-	-	0x27	yes

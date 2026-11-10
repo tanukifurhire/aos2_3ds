@@ -1,0 +1,20 @@
+# Win quote choice FUN_00617110(winner, idx), called from Game Exit FUN_005f5780 (0x5f5a60) with idx = DAT_008942c0 (= -1; reset by every Game Init FUN_005f4650 except replay playback).
+# idx -1 -> FUN_00459f80(0,100) % 3 (outside the tick -> cosmetic RNG 0x875b68) -> _01.._03; then if the LOSER's char is the listed opponent, idx = 10/11/12 -> X01/X02/X03 (always, overrides the roll).
+# text id = base + idx (idx<3) or base + idx - 7 (X quotes); stored in DAT_009b6944; key text in extracted/script/<lang>/win_quote.txt. Base ids: registration FUN_004d9620 (WIN_SORA_01 = 0x26b).
+id	char	base_text_id	X01_vs	X02_vs	X03_vs
+3	Sora	0x26b	10 Suguri	16 Hime	7 Sham
+4	Alte	0x271	7 Sham	15 Kyoko	-
+5	Tsih	0x276	6 Mira	14 Kae	-
+6	Mira	0x27b	4 Alte	13 Nanako	-
+7	Sham	0x280	5 Tsih	11 Saki	3 Sora
+8	Nath	0x286	9 StarBreaker	12 Iru	-
+9	StarBreaker	0x28b	8 Nath	10 Suguri	-
+10	Suguri	0x290	16 Hime	3 Sora	9 StarBreaker
+11	Saki	0x296	12 Iru	7 Sham	-
+12	Iru	0x29b	13 Nanako	8 Nath	-
+13	Nanako	0x2a0	14 Kae	6 Mira	-
+14	Kae	0x2a5	15 Kyoko	5 Tsih	-
+15	Kyoko	0x2aa	11 Saki	4 Alte	-
+16	Hime	0x2af	10 Suguri	3 Sora	-
+17	Sumika	0x2b4	-	-	-
+18	Sumika 2nd	0x2b4	-	-	-

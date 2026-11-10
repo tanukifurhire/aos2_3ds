@@ -1,0 +1,21 @@
+# Character pools built by ArcSelect Init FUN_0079df00 (vectors 0x9b8de0+12*player) and VS Select Init FUN_0079acc0 (same vectors). Order = list index order.
+# unlock flag = byte DAT_0087b72c + id (0x87b72f..0x87b73d). Icon carousel draws index+k at x = W/2 - k*90s (FUN_0079fb30), so higher index = further LEFT on screen.
+# ArcSelect: Sumika (17) only if DAT_0087faa8==0 (arcade). VS: Sumika if unlocked, then id 1 (Random "???") always last (0x79b431).
+idx_if_all_unlocked	id	char	unlock_flag	arcade	story	vs
+0	9	StarBreaker	0x87b735	y	y	y
+1	8	Nath	0x87b734	y	y	y
+2	7	Sham	0x87b733	y	y	y
+3	6	Mira	0x87b732	y	y	y
+4	5	Tsih	0x87b731	y	y	y
+5	4	Alte	0x87b730	y	y	y
+6	3	Sora	0x87b72f	y	y	y
+7	10	Suguri	0x87b736	y	y	y
+8	11	Saki	0x87b737	y	y	y
+9	12	Iru	0x87b738	y	y	y
+10	13	Nanako	0x87b739	y	y	y
+11	14	Kae	0x87b73a	y	y	y
+12	15	Kyoko	0x87b73b	y	y	y
+13	16	Hime	0x87b73c	y	y	y
+14	17	Sumika	0x87b73d	y	n	y
+15	1	Random	-	n	n	y
+# default cursors when entering from the main menu (DAT_00885874==4): ArcSelect DAT_009b6ac8 = index of 10 (Suguri); VS P1 DAT_009b6ac8 = index of 10 (Suguri), P2 DAT_009b6acc = index of 3 (Sora) (0x79be3d/0x79be66); otherwise cursors are kept.

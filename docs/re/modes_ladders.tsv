@@ -1,0 +1,493 @@
+# Arcade (builder FUN_004a7cc0, stepper FUN_004a7910) and story (builder FUN_007befa0, stepper FUN_007bec90) ladders. Entry = 0x1c bytes {+0 type,+4 P1 char / script id,+8 opponent (1=RANDOM: pool pick FUN_00459f80(0,n*10)%n on cosmetic RNG, removed) / backdrop stage,+0xc P1 col,+0x10 P2 col,+0x14 stage,+0x18 BGM}. Vectors: steps 0x8940b0, pool 0x8940bc, index DAT_008940ac. Generated from all.c + scratch story_builder_7befa0.c; story stage 15 constant verified by disasm 0x7bf122.
+mode	player	step	type	opponent	stage	bgm (id name / file)	colours P1/P2	conversation	random pool (engine ids)	note
+arcade	3 Sora	0	fight	RANDOM	15 (0xf) Nature 10,000 Years After	16 (0x10) Expendables / bgm_09.ogg	0/0		4 5 6 7 8 11 12 13 14 15	
+arcade	3 Sora	1	result							
+arcade	3 Sora	2	fight	RANDOM	6 (0x6) War 10,000 Years Ago	12 (0xc) Black Hole / bgm_05.ogg	0/0		4 5 6 7 8 11 12 13 14 15	
+arcade	3 Sora	3	result							
+arcade	3 Sora	4	fight	RANDOM	7 (0x7) Canyon of Wind	13 (0xd) Distant Thunder / bgm_06.ogg	0/0		4 5 6 7 8 11 12 13 14 15	
+arcade	3 Sora	5	result							
+arcade	3 Sora	6	fight	RANDOM	8 (0x8) Dust Storm	11 (0xb) Need for Speed / bgm_04.ogg	0/0		4 5 6 7 8 11 12 13 14 15	
+arcade	3 Sora	7	result							
+arcade	3 Sora	8	fight	RANDOM	9 (0x9) Rain and Sunset	17 (0x11) Ribbon / bgm_10.ogg	0/0		4 5 6 7 8 11 12 13 14 15	
+arcade	3 Sora	9	result							
+arcade	3 Sora	10	fight	RANDOM	11 (0xb) Big Bridge	15 (0xf) Shine / bgm_08.ogg	0/0		4 5 6 7 8 11 12 13 14 15	
+arcade	3 Sora	11	result							
+arcade	3 Sora	12	fight	9 StarBreaker	12 (0xc) Capital in Flames	14 (0xe) Swordfish / bgm_07.ogg	0/0		4 5 6 7 8 11 12 13 14 15	stage 12->13 (Whirlpool of Malice) if no continue used (DAT_008940c8==0)
+arcade	3 Sora	13	result							
+arcade	3 Sora	14	ending							
+arcade	4 Alte	0	fight	RANDOM	15 (0xf) Nature 10,000 Years After	16 (0x10) Expendables / bgm_09.ogg	0/0		5 6 7 8 11 12 13 14 15	
+arcade	4 Alte	1	result							
+arcade	4 Alte	2	fight	RANDOM	6 (0x6) War 10,000 Years Ago	12 (0xc) Black Hole / bgm_05.ogg	0/0		5 6 7 8 11 12 13 14 15	
+arcade	4 Alte	3	result							
+arcade	4 Alte	4	fight	RANDOM	7 (0x7) Canyon of Wind	13 (0xd) Distant Thunder / bgm_06.ogg	0/0		5 6 7 8 11 12 13 14 15	
+arcade	4 Alte	5	result							
+arcade	4 Alte	6	fight	RANDOM	8 (0x8) Dust Storm	11 (0xb) Need for Speed / bgm_04.ogg	0/0		5 6 7 8 11 12 13 14 15	
+arcade	4 Alte	7	result							
+arcade	4 Alte	8	fight	RANDOM	9 (0x9) Rain and Sunset	17 (0x11) Ribbon / bgm_10.ogg	0/0		5 6 7 8 11 12 13 14 15	
+arcade	4 Alte	9	result							
+arcade	4 Alte	10	fight	RANDOM	11 (0xb) Big Bridge	15 (0xf) Shine / bgm_08.ogg	0/0		5 6 7 8 11 12 13 14 15	
+arcade	4 Alte	11	result							
+arcade	4 Alte	12	fight	9 StarBreaker	12 (0xc) Capital in Flames	14 (0xe) Swordfish / bgm_07.ogg	0/0		5 6 7 8 11 12 13 14 15	stage 12->13 (Whirlpool of Malice) if no continue used (DAT_008940c8==0)
+arcade	4 Alte	13	result							
+arcade	4 Alte	14	ending							
+arcade	5 Tsih	0	fight	RANDOM	15 (0xf) Nature 10,000 Years After	16 (0x10) Expendables / bgm_09.ogg	0/0		4 6 7 8 11 12 13 14 15	
+arcade	5 Tsih	1	result							
+arcade	5 Tsih	2	fight	RANDOM	6 (0x6) War 10,000 Years Ago	12 (0xc) Black Hole / bgm_05.ogg	0/0		4 6 7 8 11 12 13 14 15	
+arcade	5 Tsih	3	result							
+arcade	5 Tsih	4	fight	RANDOM	7 (0x7) Canyon of Wind	13 (0xd) Distant Thunder / bgm_06.ogg	0/0		4 6 7 8 11 12 13 14 15	
+arcade	5 Tsih	5	result							
+arcade	5 Tsih	6	fight	RANDOM	8 (0x8) Dust Storm	11 (0xb) Need for Speed / bgm_04.ogg	0/0		4 6 7 8 11 12 13 14 15	
+arcade	5 Tsih	7	result							
+arcade	5 Tsih	8	fight	RANDOM	9 (0x9) Rain and Sunset	17 (0x11) Ribbon / bgm_10.ogg	0/0		4 6 7 8 11 12 13 14 15	
+arcade	5 Tsih	9	result							
+arcade	5 Tsih	10	fight	RANDOM	11 (0xb) Big Bridge	15 (0xf) Shine / bgm_08.ogg	0/0		4 6 7 8 11 12 13 14 15	
+arcade	5 Tsih	11	result							
+arcade	5 Tsih	12	fight	9 StarBreaker	12 (0xc) Capital in Flames	14 (0xe) Swordfish / bgm_07.ogg	0/0		4 6 7 8 11 12 13 14 15	stage 12->13 (Whirlpool of Malice) if no continue used (DAT_008940c8==0)
+arcade	5 Tsih	13	result							
+arcade	5 Tsih	14	ending							
+arcade	6 Mira	0	fight	RANDOM	15 (0xf) Nature 10,000 Years After	16 (0x10) Expendables / bgm_09.ogg	0/0		4 5 7 8 11 12 13 14 15	
+arcade	6 Mira	1	result							
+arcade	6 Mira	2	fight	RANDOM	6 (0x6) War 10,000 Years Ago	12 (0xc) Black Hole / bgm_05.ogg	0/0		4 5 7 8 11 12 13 14 15	
+arcade	6 Mira	3	result							
+arcade	6 Mira	4	fight	RANDOM	7 (0x7) Canyon of Wind	13 (0xd) Distant Thunder / bgm_06.ogg	0/0		4 5 7 8 11 12 13 14 15	
+arcade	6 Mira	5	result							
+arcade	6 Mira	6	fight	RANDOM	8 (0x8) Dust Storm	11 (0xb) Need for Speed / bgm_04.ogg	0/0		4 5 7 8 11 12 13 14 15	
+arcade	6 Mira	7	result							
+arcade	6 Mira	8	fight	RANDOM	9 (0x9) Rain and Sunset	17 (0x11) Ribbon / bgm_10.ogg	0/0		4 5 7 8 11 12 13 14 15	
+arcade	6 Mira	9	result							
+arcade	6 Mira	10	fight	RANDOM	11 (0xb) Big Bridge	15 (0xf) Shine / bgm_08.ogg	0/0		4 5 7 8 11 12 13 14 15	
+arcade	6 Mira	11	result							
+arcade	6 Mira	12	fight	9 StarBreaker	12 (0xc) Capital in Flames	14 (0xe) Swordfish / bgm_07.ogg	0/0		4 5 7 8 11 12 13 14 15	stage 12->13 (Whirlpool of Malice) if no continue used (DAT_008940c8==0)
+arcade	6 Mira	13	result							
+arcade	6 Mira	14	ending							
+arcade	7 Sham	0	fight	RANDOM	15 (0xf) Nature 10,000 Years After	16 (0x10) Expendables / bgm_09.ogg	0/0		4 5 6 8 11 12 13 14 15	
+arcade	7 Sham	1	result							
+arcade	7 Sham	2	fight	RANDOM	6 (0x6) War 10,000 Years Ago	12 (0xc) Black Hole / bgm_05.ogg	0/0		4 5 6 8 11 12 13 14 15	
+arcade	7 Sham	3	result							
+arcade	7 Sham	4	fight	RANDOM	7 (0x7) Canyon of Wind	13 (0xd) Distant Thunder / bgm_06.ogg	0/0		4 5 6 8 11 12 13 14 15	
+arcade	7 Sham	5	result							
+arcade	7 Sham	6	fight	RANDOM	8 (0x8) Dust Storm	11 (0xb) Need for Speed / bgm_04.ogg	0/0		4 5 6 8 11 12 13 14 15	
+arcade	7 Sham	7	result							
+arcade	7 Sham	8	fight	RANDOM	9 (0x9) Rain and Sunset	17 (0x11) Ribbon / bgm_10.ogg	0/0		4 5 6 8 11 12 13 14 15	
+arcade	7 Sham	9	result							
+arcade	7 Sham	10	fight	RANDOM	11 (0xb) Big Bridge	15 (0xf) Shine / bgm_08.ogg	0/0		4 5 6 8 11 12 13 14 15	
+arcade	7 Sham	11	result							
+arcade	7 Sham	12	fight	9 StarBreaker	12 (0xc) Capital in Flames	14 (0xe) Swordfish / bgm_07.ogg	0/0		4 5 6 8 11 12 13 14 15	stage 12->13 (Whirlpool of Malice) if no continue used (DAT_008940c8==0)
+arcade	7 Sham	13	result							
+arcade	7 Sham	14	ending							
+arcade	8 Nath	0	fight	RANDOM	15 (0xf) Nature 10,000 Years After	16 (0x10) Expendables / bgm_09.ogg	0/0		4 5 6 7 11 12 13 14 15	
+arcade	8 Nath	1	result							
+arcade	8 Nath	2	fight	RANDOM	6 (0x6) War 10,000 Years Ago	12 (0xc) Black Hole / bgm_05.ogg	0/0		4 5 6 7 11 12 13 14 15	
+arcade	8 Nath	3	result							
+arcade	8 Nath	4	fight	RANDOM	7 (0x7) Canyon of Wind	13 (0xd) Distant Thunder / bgm_06.ogg	0/0		4 5 6 7 11 12 13 14 15	
+arcade	8 Nath	5	result							
+arcade	8 Nath	6	fight	RANDOM	8 (0x8) Dust Storm	11 (0xb) Need for Speed / bgm_04.ogg	0/0		4 5 6 7 11 12 13 14 15	
+arcade	8 Nath	7	result							
+arcade	8 Nath	8	fight	RANDOM	9 (0x9) Rain and Sunset	17 (0x11) Ribbon / bgm_10.ogg	0/0		4 5 6 7 11 12 13 14 15	
+arcade	8 Nath	9	result							
+arcade	8 Nath	10	fight	RANDOM	11 (0xb) Big Bridge	15 (0xf) Shine / bgm_08.ogg	0/0		4 5 6 7 11 12 13 14 15	
+arcade	8 Nath	11	result							
+arcade	8 Nath	12	fight	9 StarBreaker	12 (0xc) Capital in Flames	14 (0xe) Swordfish / bgm_07.ogg	0/0		4 5 6 7 11 12 13 14 15	stage 12->13 (Whirlpool of Malice) if no continue used (DAT_008940c8==0)
+arcade	8 Nath	13	result							
+arcade	8 Nath	14	ending							
+arcade	9 StarBreaker	0	fight	RANDOM	15 (0xf) Nature 10,000 Years After	16 (0x10) Expendables / bgm_09.ogg	0/0		4 5 6 7 8 11 12 13 14 15	
+arcade	9 StarBreaker	1	result							
+arcade	9 StarBreaker	2	fight	RANDOM	6 (0x6) War 10,000 Years Ago	12 (0xc) Black Hole / bgm_05.ogg	0/0		4 5 6 7 8 11 12 13 14 15	
+arcade	9 StarBreaker	3	result							
+arcade	9 StarBreaker	4	fight	RANDOM	7 (0x7) Canyon of Wind	13 (0xd) Distant Thunder / bgm_06.ogg	0/0		4 5 6 7 8 11 12 13 14 15	
+arcade	9 StarBreaker	5	result							
+arcade	9 StarBreaker	6	fight	RANDOM	8 (0x8) Dust Storm	11 (0xb) Need for Speed / bgm_04.ogg	0/0		4 5 6 7 8 11 12 13 14 15	
+arcade	9 StarBreaker	7	result							
+arcade	9 StarBreaker	8	fight	RANDOM	9 (0x9) Rain and Sunset	17 (0x11) Ribbon / bgm_10.ogg	0/0		4 5 6 7 8 11 12 13 14 15	
+arcade	9 StarBreaker	9	result							
+arcade	9 StarBreaker	10	fight	RANDOM	11 (0xb) Big Bridge	15 (0xf) Shine / bgm_08.ogg	0/0		4 5 6 7 8 11 12 13 14 15	
+arcade	9 StarBreaker	11	result							
+arcade	9 StarBreaker	12	fight	3 Sora	12 (0xc) Capital in Flames	14 (0xe) Swordfish / bgm_07.ogg	0/0		4 5 6 7 8 11 12 13 14 15	stage 12->13 (Whirlpool of Malice) if no continue used (DAT_008940c8==0)
+arcade	9 StarBreaker	13	result							
+arcade	9 StarBreaker	14	ending							
+arcade	10 Suguri	0	fight	RANDOM	15 (0xf) Nature 10,000 Years After	16 (0x10) Expendables / bgm_09.ogg	0/0		4 5 6 7 8 11 12 13 14 15	
+arcade	10 Suguri	1	result							
+arcade	10 Suguri	2	fight	RANDOM	6 (0x6) War 10,000 Years Ago	12 (0xc) Black Hole / bgm_05.ogg	0/0		4 5 6 7 8 11 12 13 14 15	
+arcade	10 Suguri	3	result							
+arcade	10 Suguri	4	fight	RANDOM	7 (0x7) Canyon of Wind	13 (0xd) Distant Thunder / bgm_06.ogg	0/0		4 5 6 7 8 11 12 13 14 15	
+arcade	10 Suguri	5	result							
+arcade	10 Suguri	6	fight	RANDOM	8 (0x8) Dust Storm	11 (0xb) Need for Speed / bgm_04.ogg	0/0		4 5 6 7 8 11 12 13 14 15	
+arcade	10 Suguri	7	result							
+arcade	10 Suguri	8	fight	RANDOM	9 (0x9) Rain and Sunset	17 (0x11) Ribbon / bgm_10.ogg	0/0		4 5 6 7 8 11 12 13 14 15	
+arcade	10 Suguri	9	result							
+arcade	10 Suguri	10	fight	RANDOM	11 (0xb) Big Bridge	15 (0xf) Shine / bgm_08.ogg	0/0		4 5 6 7 8 11 12 13 14 15	
+arcade	10 Suguri	11	result							
+arcade	10 Suguri	12	fight	16 Hime	17 (0x11) Guardian's Chamber	14 (0xe) Swordfish / bgm_07.ogg	0/0		4 5 6 7 8 11 12 13 14 15	stage 17->18 (Moonlight Dance Hall) if no continue used
+arcade	10 Suguri	13	result							
+arcade	10 Suguri	14	ending							
+arcade	11 Saki	0	fight	RANDOM	15 (0xf) Nature 10,000 Years After	16 (0x10) Expendables / bgm_09.ogg	0/0		4 5 6 7 8 12 13 14 15	
+arcade	11 Saki	1	result							
+arcade	11 Saki	2	fight	RANDOM	6 (0x6) War 10,000 Years Ago	12 (0xc) Black Hole / bgm_05.ogg	0/0		4 5 6 7 8 12 13 14 15	
+arcade	11 Saki	3	result							
+arcade	11 Saki	4	fight	RANDOM	7 (0x7) Canyon of Wind	13 (0xd) Distant Thunder / bgm_06.ogg	0/0		4 5 6 7 8 12 13 14 15	
+arcade	11 Saki	5	result							
+arcade	11 Saki	6	fight	RANDOM	8 (0x8) Dust Storm	11 (0xb) Need for Speed / bgm_04.ogg	0/0		4 5 6 7 8 12 13 14 15	
+arcade	11 Saki	7	result							
+arcade	11 Saki	8	fight	RANDOM	9 (0x9) Rain and Sunset	17 (0x11) Ribbon / bgm_10.ogg	0/0		4 5 6 7 8 12 13 14 15	
+arcade	11 Saki	9	result							
+arcade	11 Saki	10	fight	RANDOM	11 (0xb) Big Bridge	15 (0xf) Shine / bgm_08.ogg	0/0		4 5 6 7 8 12 13 14 15	
+arcade	11 Saki	11	result							
+arcade	11 Saki	12	fight	16 Hime	17 (0x11) Guardian's Chamber	14 (0xe) Swordfish / bgm_07.ogg	0/0		4 5 6 7 8 12 13 14 15	stage 17->18 (Moonlight Dance Hall) if no continue used
+arcade	11 Saki	13	result							
+arcade	11 Saki	14	ending							
+arcade	12 Iru	0	fight	RANDOM	15 (0xf) Nature 10,000 Years After	16 (0x10) Expendables / bgm_09.ogg	0/0		4 5 6 7 8 11 13 14 15	
+arcade	12 Iru	1	result							
+arcade	12 Iru	2	fight	RANDOM	6 (0x6) War 10,000 Years Ago	12 (0xc) Black Hole / bgm_05.ogg	0/0		4 5 6 7 8 11 13 14 15	
+arcade	12 Iru	3	result							
+arcade	12 Iru	4	fight	RANDOM	7 (0x7) Canyon of Wind	13 (0xd) Distant Thunder / bgm_06.ogg	0/0		4 5 6 7 8 11 13 14 15	
+arcade	12 Iru	5	result							
+arcade	12 Iru	6	fight	RANDOM	8 (0x8) Dust Storm	11 (0xb) Need for Speed / bgm_04.ogg	0/0		4 5 6 7 8 11 13 14 15	
+arcade	12 Iru	7	result							
+arcade	12 Iru	8	fight	RANDOM	9 (0x9) Rain and Sunset	17 (0x11) Ribbon / bgm_10.ogg	0/0		4 5 6 7 8 11 13 14 15	
+arcade	12 Iru	9	result							
+arcade	12 Iru	10	fight	RANDOM	11 (0xb) Big Bridge	15 (0xf) Shine / bgm_08.ogg	0/0		4 5 6 7 8 11 13 14 15	
+arcade	12 Iru	11	result							
+arcade	12 Iru	12	fight	16 Hime	17 (0x11) Guardian's Chamber	14 (0xe) Swordfish / bgm_07.ogg	0/0		4 5 6 7 8 11 13 14 15	stage 17->18 (Moonlight Dance Hall) if no continue used
+arcade	12 Iru	13	result							
+arcade	12 Iru	14	ending							
+arcade	13 Nanako	0	fight	RANDOM	15 (0xf) Nature 10,000 Years After	16 (0x10) Expendables / bgm_09.ogg	0/0		4 5 6 7 8 11 12 14 15	
+arcade	13 Nanako	1	result							
+arcade	13 Nanako	2	fight	RANDOM	6 (0x6) War 10,000 Years Ago	12 (0xc) Black Hole / bgm_05.ogg	0/0		4 5 6 7 8 11 12 14 15	
+arcade	13 Nanako	3	result							
+arcade	13 Nanako	4	fight	RANDOM	7 (0x7) Canyon of Wind	13 (0xd) Distant Thunder / bgm_06.ogg	0/0		4 5 6 7 8 11 12 14 15	
+arcade	13 Nanako	5	result							
+arcade	13 Nanako	6	fight	RANDOM	8 (0x8) Dust Storm	11 (0xb) Need for Speed / bgm_04.ogg	0/0		4 5 6 7 8 11 12 14 15	
+arcade	13 Nanako	7	result							
+arcade	13 Nanako	8	fight	RANDOM	9 (0x9) Rain and Sunset	17 (0x11) Ribbon / bgm_10.ogg	0/0		4 5 6 7 8 11 12 14 15	
+arcade	13 Nanako	9	result							
+arcade	13 Nanako	10	fight	RANDOM	11 (0xb) Big Bridge	15 (0xf) Shine / bgm_08.ogg	0/0		4 5 6 7 8 11 12 14 15	
+arcade	13 Nanako	11	result							
+arcade	13 Nanako	12	fight	16 Hime	17 (0x11) Guardian's Chamber	14 (0xe) Swordfish / bgm_07.ogg	0/0		4 5 6 7 8 11 12 14 15	stage 17->18 (Moonlight Dance Hall) if no continue used
+arcade	13 Nanako	13	result							
+arcade	13 Nanako	14	ending							
+arcade	14 Kae	0	fight	RANDOM	15 (0xf) Nature 10,000 Years After	16 (0x10) Expendables / bgm_09.ogg	0/0		4 5 6 7 8 11 12 13 15	
+arcade	14 Kae	1	result							
+arcade	14 Kae	2	fight	RANDOM	6 (0x6) War 10,000 Years Ago	12 (0xc) Black Hole / bgm_05.ogg	0/0		4 5 6 7 8 11 12 13 15	
+arcade	14 Kae	3	result							
+arcade	14 Kae	4	fight	RANDOM	7 (0x7) Canyon of Wind	13 (0xd) Distant Thunder / bgm_06.ogg	0/0		4 5 6 7 8 11 12 13 15	
+arcade	14 Kae	5	result							
+arcade	14 Kae	6	fight	RANDOM	8 (0x8) Dust Storm	11 (0xb) Need for Speed / bgm_04.ogg	0/0		4 5 6 7 8 11 12 13 15	
+arcade	14 Kae	7	result							
+arcade	14 Kae	8	fight	RANDOM	9 (0x9) Rain and Sunset	17 (0x11) Ribbon / bgm_10.ogg	0/0		4 5 6 7 8 11 12 13 15	
+arcade	14 Kae	9	result							
+arcade	14 Kae	10	fight	RANDOM	11 (0xb) Big Bridge	15 (0xf) Shine / bgm_08.ogg	0/0		4 5 6 7 8 11 12 13 15	
+arcade	14 Kae	11	result							
+arcade	14 Kae	12	fight	16 Hime	17 (0x11) Guardian's Chamber	14 (0xe) Swordfish / bgm_07.ogg	0/0		4 5 6 7 8 11 12 13 15	stage 17->18 (Moonlight Dance Hall) if no continue used
+arcade	14 Kae	13	result							
+arcade	14 Kae	14	ending							
+arcade	15 Kyoko	0	fight	RANDOM	15 (0xf) Nature 10,000 Years After	16 (0x10) Expendables / bgm_09.ogg	0/0		4 5 6 7 8 11 12 13 14	
+arcade	15 Kyoko	1	result							
+arcade	15 Kyoko	2	fight	RANDOM	6 (0x6) War 10,000 Years Ago	12 (0xc) Black Hole / bgm_05.ogg	0/0		4 5 6 7 8 11 12 13 14	
+arcade	15 Kyoko	3	result							
+arcade	15 Kyoko	4	fight	RANDOM	7 (0x7) Canyon of Wind	13 (0xd) Distant Thunder / bgm_06.ogg	0/0		4 5 6 7 8 11 12 13 14	
+arcade	15 Kyoko	5	result							
+arcade	15 Kyoko	6	fight	RANDOM	8 (0x8) Dust Storm	11 (0xb) Need for Speed / bgm_04.ogg	0/0		4 5 6 7 8 11 12 13 14	
+arcade	15 Kyoko	7	result							
+arcade	15 Kyoko	8	fight	RANDOM	9 (0x9) Rain and Sunset	17 (0x11) Ribbon / bgm_10.ogg	0/0		4 5 6 7 8 11 12 13 14	
+arcade	15 Kyoko	9	result							
+arcade	15 Kyoko	10	fight	RANDOM	11 (0xb) Big Bridge	15 (0xf) Shine / bgm_08.ogg	0/0		4 5 6 7 8 11 12 13 14	
+arcade	15 Kyoko	11	result							
+arcade	15 Kyoko	12	fight	16 Hime	17 (0x11) Guardian's Chamber	14 (0xe) Swordfish / bgm_07.ogg	0/0		4 5 6 7 8 11 12 13 14	stage 17->18 (Moonlight Dance Hall) if no continue used
+arcade	15 Kyoko	13	result							
+arcade	15 Kyoko	14	ending							
+arcade	16 Hime	0	fight	RANDOM	15 (0xf) Nature 10,000 Years After	16 (0x10) Expendables / bgm_09.ogg	0/0		4 5 6 7 8 11 12 13 14 15	
+arcade	16 Hime	1	result							
+arcade	16 Hime	2	fight	RANDOM	6 (0x6) War 10,000 Years Ago	12 (0xc) Black Hole / bgm_05.ogg	0/0		4 5 6 7 8 11 12 13 14 15	
+arcade	16 Hime	3	result							
+arcade	16 Hime	4	fight	RANDOM	7 (0x7) Canyon of Wind	13 (0xd) Distant Thunder / bgm_06.ogg	0/0		4 5 6 7 8 11 12 13 14 15	
+arcade	16 Hime	5	result							
+arcade	16 Hime	6	fight	RANDOM	8 (0x8) Dust Storm	11 (0xb) Need for Speed / bgm_04.ogg	0/0		4 5 6 7 8 11 12 13 14 15	
+arcade	16 Hime	7	result							
+arcade	16 Hime	8	fight	RANDOM	9 (0x9) Rain and Sunset	17 (0x11) Ribbon / bgm_10.ogg	0/0		4 5 6 7 8 11 12 13 14 15	
+arcade	16 Hime	9	result							
+arcade	16 Hime	10	fight	RANDOM	11 (0xb) Big Bridge	15 (0xf) Shine / bgm_08.ogg	0/0		4 5 6 7 8 11 12 13 14 15	
+arcade	16 Hime	11	result							
+arcade	16 Hime	12	fight	10 Suguri	17 (0x11) Guardian's Chamber	14 (0xe) Swordfish / bgm_07.ogg	0/0		4 5 6 7 8 11 12 13 14 15	stage 17->18 (Moonlight Dance Hall) if no continue used
+arcade	16 Hime	13	result							
+arcade	16 Hime	14	ending							
+arcade	17 Sumika	0	fight	RANDOM	15 (0xf) Nature 10,000 Years After	16 (0x10) Expendables / bgm_09.ogg	0/0		4 5 6 7 8 11 12 13 14 15	
+arcade	17 Sumika	1	result							
+arcade	17 Sumika	2	fight	RANDOM	6 (0x6) War 10,000 Years Ago	12 (0xc) Black Hole / bgm_05.ogg	0/0		4 5 6 7 8 11 12 13 14 15	
+arcade	17 Sumika	3	result							
+arcade	17 Sumika	4	fight	RANDOM	7 (0x7) Canyon of Wind	13 (0xd) Distant Thunder / bgm_06.ogg	0/0		4 5 6 7 8 11 12 13 14 15	
+arcade	17 Sumika	5	result							
+arcade	17 Sumika	6	fight	RANDOM	8 (0x8) Dust Storm	11 (0xb) Need for Speed / bgm_04.ogg	0/0		4 5 6 7 8 11 12 13 14 15	
+arcade	17 Sumika	7	result							
+arcade	17 Sumika	8	fight	RANDOM	9 (0x9) Rain and Sunset	17 (0x11) Ribbon / bgm_10.ogg	0/0		4 5 6 7 8 11 12 13 14 15	
+arcade	17 Sumika	9	result							
+arcade	17 Sumika	10	fight	RANDOM	11 (0xb) Big Bridge	15 (0xf) Shine / bgm_08.ogg	0/0		4 5 6 7 8 11 12 13 14 15	
+arcade	17 Sumika	11	result							
+arcade	17 Sumika	12	fight	10 Suguri	17 (0x11) Guardian's Chamber	14 (0xe) Swordfish / bgm_07.ogg	0/0		4 5 6 7 8 11 12 13 14 15	stage 17->18 (Moonlight Dance Hall) if no continue used
+arcade	17 Sumika	13	result							
+arcade	17 Sumika	14	ending							
+story	3 Sora	0	conversation					TEXT_CONVERSATION010 backdrop 15 (0xf) Nature 10,000 Years After		
+story	3 Sora	1	fight	7 Sham	15 (0xf) Nature 10,000 Years After	16 (0x10) Expendables / bgm_09.ogg	0/0		4 5 6 8 9	
+story	3 Sora	2	result							
+story	3 Sora	3	fight	RANDOM	15 (0xf) Nature 10,000 Years After	12 (0xc) Black Hole / bgm_05.ogg	0/0		4 5 6 8 9	
+story	3 Sora	4	result							
+story	3 Sora	5	fight	RANDOM	15 (0xf) Nature 10,000 Years After	13 (0xd) Distant Thunder / bgm_06.ogg	0/0		4 5 6 8 9	
+story	3 Sora	6	result							
+story	3 Sora	7	fight	RANDOM	15 (0xf) Nature 10,000 Years After	11 (0xb) Need for Speed / bgm_04.ogg	0/0		4 5 6 8 9	
+story	3 Sora	8	result							
+story	3 Sora	9	fight	RANDOM	15 (0xf) Nature 10,000 Years After	17 (0x11) Ribbon / bgm_10.ogg	0/0		4 5 6 8 9	
+story	3 Sora	10	result							
+story	3 Sora	11	conversation					TEXT_CONVERSATION011 backdrop 16 (0x10) Crashed Spaceship		
+story	3 Sora	12	fight	16 Hime	16 (0x10) Crashed Spaceship	18 (0x12) Movin' Out / bgm_11.ogg	0/0		4 5 6 8 9	
+story	3 Sora	13	result							
+story	3 Sora	14	conversation					TEXT_CONVERSATION012 backdrop 19 (0x13) Sumika's Hideout		
+story	3 Sora	15	fight	18 Sumika2nd	19 (0x13) Sumika's Hideout	19 (0x13) Accelerator / bgm_13.ogg	0/0		4 5 6 8 9	timer 999 (Game Init: story && stage 0x13)
+story	3 Sora	16	result							
+story	3 Sora	17	conversation					TEXT_CONVERSATION013 backdrop 19 (0x13) Sumika's Hideout		
+story	3 Sora	18	ending							
+story	4 Alte	0	conversation					TEXT_CONVERSATION020 backdrop 15 (0xf) Nature 10,000 Years After		
+story	4 Alte	1	fight	RANDOM	15 (0xf) Nature 10,000 Years After	16 (0x10) Expendables / bgm_09.ogg	0/0		12 11 13 14 16	
+story	4 Alte	2	result							
+story	4 Alte	3	fight	RANDOM	15 (0xf) Nature 10,000 Years After	12 (0xc) Black Hole / bgm_05.ogg	0/0		12 11 13 14 16	
+story	4 Alte	4	result							
+story	4 Alte	5	fight	RANDOM	15 (0xf) Nature 10,000 Years After	13 (0xd) Distant Thunder / bgm_06.ogg	0/0		12 11 13 14 16	
+story	4 Alte	6	result							
+story	4 Alte	7	fight	RANDOM	15 (0xf) Nature 10,000 Years After	11 (0xb) Need for Speed / bgm_04.ogg	0/0		12 11 13 14 16	
+story	4 Alte	8	result							
+story	4 Alte	9	fight	RANDOM	15 (0xf) Nature 10,000 Years After	17 (0x11) Ribbon / bgm_10.ogg	0/0		12 11 13 14 16	
+story	4 Alte	10	result							
+story	4 Alte	11	conversation					TEXT_CONVERSATION021 backdrop 16 (0x10) Crashed Spaceship		
+story	4 Alte	12	fight	15 Kyoko	16 (0x10) Crashed Spaceship	18 (0x12) Movin' Out / bgm_11.ogg	0/0		12 11 13 14 16	
+story	4 Alte	13	result							
+story	4 Alte	14	conversation					TEXT_CONVERSATION022 backdrop 19 (0x13) Sumika's Hideout		
+story	4 Alte	15	fight	18 Sumika2nd	19 (0x13) Sumika's Hideout	19 (0x13) Accelerator / bgm_13.ogg	0/0		12 11 13 14 16	timer 999 (Game Init: story && stage 0x13)
+story	4 Alte	16	result							
+story	4 Alte	17	conversation					TEXT_CONVERSATION023 backdrop 19 (0x13) Sumika's Hideout		
+story	4 Alte	18	ending							
+story	5 Tsih	0	conversation					TEXT_CONVERSATION030 backdrop 15 (0xf) Nature 10,000 Years After		
+story	5 Tsih	1	fight	RANDOM	15 (0xf) Nature 10,000 Years After	16 (0x10) Expendables / bgm_09.ogg	0/0		12 11 13 15 16	
+story	5 Tsih	2	result							
+story	5 Tsih	3	fight	RANDOM	15 (0xf) Nature 10,000 Years After	12 (0xc) Black Hole / bgm_05.ogg	0/0		12 11 13 15 16	
+story	5 Tsih	4	result							
+story	5 Tsih	5	fight	RANDOM	15 (0xf) Nature 10,000 Years After	13 (0xd) Distant Thunder / bgm_06.ogg	0/0		12 11 13 15 16	
+story	5 Tsih	6	result							
+story	5 Tsih	7	fight	RANDOM	15 (0xf) Nature 10,000 Years After	11 (0xb) Need for Speed / bgm_04.ogg	0/0		12 11 13 15 16	
+story	5 Tsih	8	result							
+story	5 Tsih	9	fight	RANDOM	15 (0xf) Nature 10,000 Years After	17 (0x11) Ribbon / bgm_10.ogg	0/0		12 11 13 15 16	
+story	5 Tsih	10	result							
+story	5 Tsih	11	conversation					TEXT_CONVERSATION031 backdrop 16 (0x10) Crashed Spaceship		
+story	5 Tsih	12	fight	14 Kae	16 (0x10) Crashed Spaceship	18 (0x12) Movin' Out / bgm_11.ogg	0/0		12 11 13 15 16	
+story	5 Tsih	13	result							
+story	5 Tsih	14	conversation					TEXT_CONVERSATION032 backdrop 19 (0x13) Sumika's Hideout		
+story	5 Tsih	15	fight	18 Sumika2nd	19 (0x13) Sumika's Hideout	19 (0x13) Accelerator / bgm_13.ogg	0/0		12 11 13 15 16	timer 999 (Game Init: story && stage 0x13)
+story	5 Tsih	16	result							
+story	5 Tsih	17	conversation					TEXT_CONVERSATION033 backdrop 19 (0x13) Sumika's Hideout		
+story	5 Tsih	18	ending							
+story	6 Mira	0	conversation					TEXT_CONVERSATION040 backdrop 15 (0xf) Nature 10,000 Years After		
+story	6 Mira	1	fight	RANDOM	15 (0xf) Nature 10,000 Years After	16 (0x10) Expendables / bgm_09.ogg	0/0		12 11 14 15 16	
+story	6 Mira	2	result							
+story	6 Mira	3	fight	RANDOM	15 (0xf) Nature 10,000 Years After	12 (0xc) Black Hole / bgm_05.ogg	0/0		12 11 14 15 16	
+story	6 Mira	4	result							
+story	6 Mira	5	fight	RANDOM	15 (0xf) Nature 10,000 Years After	13 (0xd) Distant Thunder / bgm_06.ogg	0/0		12 11 14 15 16	
+story	6 Mira	6	result							
+story	6 Mira	7	fight	RANDOM	15 (0xf) Nature 10,000 Years After	11 (0xb) Need for Speed / bgm_04.ogg	0/0		12 11 14 15 16	
+story	6 Mira	8	result							
+story	6 Mira	9	fight	RANDOM	15 (0xf) Nature 10,000 Years After	17 (0x11) Ribbon / bgm_10.ogg	0/0		12 11 14 15 16	
+story	6 Mira	10	result							
+story	6 Mira	11	conversation					TEXT_CONVERSATION041 backdrop 16 (0x10) Crashed Spaceship		
+story	6 Mira	12	fight	13 Nanako	16 (0x10) Crashed Spaceship	18 (0x12) Movin' Out / bgm_11.ogg	0/0		12 11 14 15 16	
+story	6 Mira	13	result							
+story	6 Mira	14	conversation					TEXT_CONVERSATION042 backdrop 19 (0x13) Sumika's Hideout		
+story	6 Mira	15	fight	18 Sumika2nd	19 (0x13) Sumika's Hideout	19 (0x13) Accelerator / bgm_13.ogg	0/0		12 11 14 15 16	timer 999 (Game Init: story && stage 0x13)
+story	6 Mira	16	result							
+story	6 Mira	17	conversation					TEXT_CONVERSATION043 backdrop 19 (0x13) Sumika's Hideout		
+story	6 Mira	18	ending							
+story	7 Sham	0	conversation					TEXT_CONVERSATION050 backdrop 15 (0xf) Nature 10,000 Years After		
+story	7 Sham	1	fight	3 Sora	15 (0xf) Nature 10,000 Years After	16 (0x10) Expendables / bgm_09.ogg	0/0		12 13 14 15 16	
+story	7 Sham	2	result							
+story	7 Sham	3	fight	RANDOM	15 (0xf) Nature 10,000 Years After	12 (0xc) Black Hole / bgm_05.ogg	0/0		12 13 14 15 16	
+story	7 Sham	4	result							
+story	7 Sham	5	fight	RANDOM	15 (0xf) Nature 10,000 Years After	13 (0xd) Distant Thunder / bgm_06.ogg	0/0		12 13 14 15 16	
+story	7 Sham	6	result							
+story	7 Sham	7	fight	RANDOM	15 (0xf) Nature 10,000 Years After	11 (0xb) Need for Speed / bgm_04.ogg	0/0		12 13 14 15 16	
+story	7 Sham	8	result							
+story	7 Sham	9	fight	RANDOM	15 (0xf) Nature 10,000 Years After	17 (0x11) Ribbon / bgm_10.ogg	0/0		12 13 14 15 16	
+story	7 Sham	10	result							
+story	7 Sham	11	conversation					TEXT_CONVERSATION051 backdrop 16 (0x10) Crashed Spaceship		
+story	7 Sham	12	fight	11 Saki	16 (0x10) Crashed Spaceship	18 (0x12) Movin' Out / bgm_11.ogg	0/0		12 13 14 15 16	
+story	7 Sham	13	result							
+story	7 Sham	14	conversation					TEXT_CONVERSATION052 backdrop 19 (0x13) Sumika's Hideout		
+story	7 Sham	15	fight	18 Sumika2nd	19 (0x13) Sumika's Hideout	19 (0x13) Accelerator / bgm_13.ogg	0/0		12 13 14 15 16	timer 999 (Game Init: story && stage 0x13)
+story	7 Sham	16	result							
+story	7 Sham	17	conversation					TEXT_CONVERSATION053 backdrop 19 (0x13) Sumika's Hideout		
+story	7 Sham	18	ending							
+story	8 Nath	0	conversation					TEXT_CONVERSATION060 backdrop 15 (0xf) Nature 10,000 Years After		
+story	8 Nath	1	fight	RANDOM	15 (0xf) Nature 10,000 Years After	16 (0x10) Expendables / bgm_09.ogg	0/0		11 13 14 15 16	
+story	8 Nath	2	result							
+story	8 Nath	3	fight	RANDOM	15 (0xf) Nature 10,000 Years After	12 (0xc) Black Hole / bgm_05.ogg	0/0		11 13 14 15 16	
+story	8 Nath	4	result							
+story	8 Nath	5	fight	RANDOM	15 (0xf) Nature 10,000 Years After	13 (0xd) Distant Thunder / bgm_06.ogg	0/0		11 13 14 15 16	
+story	8 Nath	6	result							
+story	8 Nath	7	fight	RANDOM	15 (0xf) Nature 10,000 Years After	11 (0xb) Need for Speed / bgm_04.ogg	0/0		11 13 14 15 16	
+story	8 Nath	8	result							
+story	8 Nath	9	fight	RANDOM	15 (0xf) Nature 10,000 Years After	17 (0x11) Ribbon / bgm_10.ogg	0/0		11 13 14 15 16	
+story	8 Nath	10	result							
+story	8 Nath	11	conversation					TEXT_CONVERSATION061 backdrop 16 (0x10) Crashed Spaceship		
+story	8 Nath	12	fight	12 Iru	16 (0x10) Crashed Spaceship	18 (0x12) Movin' Out / bgm_11.ogg	0/0		11 13 14 15 16	
+story	8 Nath	13	result							
+story	8 Nath	14	conversation					TEXT_CONVERSATION062 backdrop 19 (0x13) Sumika's Hideout		
+story	8 Nath	15	fight	18 Sumika2nd	19 (0x13) Sumika's Hideout	19 (0x13) Accelerator / bgm_13.ogg	0/0		11 13 14 15 16	timer 999 (Game Init: story && stage 0x13)
+story	8 Nath	16	result							
+story	8 Nath	17	conversation					TEXT_CONVERSATION063 backdrop 19 (0x13) Sumika's Hideout		
+story	8 Nath	18	ending							
+story	9 StarBreaker	0	conversation					TEXT_CONVERSATION070 backdrop 15 (0xf) Nature 10,000 Years After		
+story	9 StarBreaker	1	fight	RANDOM	15 (0xf) Nature 10,000 Years After	16 (0x10) Expendables / bgm_09.ogg	0/0		12 11 13 14 15 16	
+story	9 StarBreaker	2	result							
+story	9 StarBreaker	3	fight	RANDOM	15 (0xf) Nature 10,000 Years After	12 (0xc) Black Hole / bgm_05.ogg	0/0		12 11 13 14 15 16	
+story	9 StarBreaker	4	result							
+story	9 StarBreaker	5	fight	RANDOM	15 (0xf) Nature 10,000 Years After	13 (0xd) Distant Thunder / bgm_06.ogg	0/0		12 11 13 14 15 16	
+story	9 StarBreaker	6	result							
+story	9 StarBreaker	7	fight	RANDOM	15 (0xf) Nature 10,000 Years After	11 (0xb) Need for Speed / bgm_04.ogg	0/0		12 11 13 14 15 16	
+story	9 StarBreaker	8	result							
+story	9 StarBreaker	9	fight	RANDOM	15 (0xf) Nature 10,000 Years After	17 (0x11) Ribbon / bgm_10.ogg	0/0		12 11 13 14 15 16	
+story	9 StarBreaker	10	result							
+story	9 StarBreaker	11	conversation					TEXT_CONVERSATION071 backdrop 16 (0x10) Crashed Spaceship		
+story	9 StarBreaker	12	fight	10 Suguri	16 (0x10) Crashed Spaceship	18 (0x12) Movin' Out / bgm_11.ogg	0/0		12 11 13 14 15 16	
+story	9 StarBreaker	13	result							
+story	9 StarBreaker	14	conversation					TEXT_CONVERSATION072 backdrop 19 (0x13) Sumika's Hideout		
+story	9 StarBreaker	15	fight	18 Sumika2nd	19 (0x13) Sumika's Hideout	19 (0x13) Accelerator / bgm_13.ogg	0/0		12 11 13 14 15 16	timer 999 (Game Init: story && stage 0x13)
+story	9 StarBreaker	16	result							
+story	9 StarBreaker	17	conversation					TEXT_CONVERSATION073 backdrop 19 (0x13) Sumika's Hideout		
+story	9 StarBreaker	18	ending							
+story	10 Suguri	0	conversation					TEXT_CONVERSATION080 backdrop 15 (0xf) Nature 10,000 Years After		
+story	10 Suguri	1	fight	6 Mira	15 (0xf) Nature 10,000 Years After	16 (0x10) Expendables / bgm_09.ogg	0/0		4 5 7 8	
+story	10 Suguri	2	result							
+story	10 Suguri	3	fight	RANDOM	15 (0xf) Nature 10,000 Years After	12 (0xc) Black Hole / bgm_05.ogg	0/0		4 5 7 8	
+story	10 Suguri	4	result							
+story	10 Suguri	5	fight	RANDOM	15 (0xf) Nature 10,000 Years After	13 (0xd) Distant Thunder / bgm_06.ogg	0/0		4 5 7 8	
+story	10 Suguri	6	result							
+story	10 Suguri	7	fight	RANDOM	15 (0xf) Nature 10,000 Years After	11 (0xb) Need for Speed / bgm_04.ogg	0/0		4 5 7 8	
+story	10 Suguri	8	result							
+story	10 Suguri	9	fight	RANDOM	15 (0xf) Nature 10,000 Years After	17 (0x11) Ribbon / bgm_10.ogg	0/0		4 5 7 8	
+story	10 Suguri	10	result							
+story	10 Suguri	11	conversation					TEXT_CONVERSATION081 backdrop 16 (0x10) Crashed Spaceship		
+story	10 Suguri	12	fight	9 StarBreaker	16 (0x10) Crashed Spaceship	18 (0x12) Movin' Out / bgm_11.ogg	0/0		4 5 7 8	
+story	10 Suguri	13	result							
+story	10 Suguri	14	conversation					TEXT_CONVERSATION082 backdrop 19 (0x13) Sumika's Hideout		
+story	10 Suguri	15	fight	18 Sumika2nd	19 (0x13) Sumika's Hideout	19 (0x13) Accelerator / bgm_13.ogg	0/0		4 5 7 8	timer 999 (Game Init: story && stage 0x13)
+story	10 Suguri	16	result							
+story	10 Suguri	17	conversation					TEXT_CONVERSATION083 backdrop 19 (0x13) Sumika's Hideout		
+story	10 Suguri	18	ending							
+story	11 Saki	0	conversation					TEXT_CONVERSATION090 backdrop 15 (0xf) Nature 10,000 Years After		
+story	11 Saki	1	fight	5 Tsih	15 (0xf) Nature 10,000 Years After	16 (0x10) Expendables / bgm_09.ogg	0/0		4 6 8 9	
+story	11 Saki	2	result							
+story	11 Saki	3	fight	RANDOM	15 (0xf) Nature 10,000 Years After	12 (0xc) Black Hole / bgm_05.ogg	0/0		4 6 8 9	
+story	11 Saki	4	result							
+story	11 Saki	5	fight	RANDOM	15 (0xf) Nature 10,000 Years After	13 (0xd) Distant Thunder / bgm_06.ogg	0/0		4 6 8 9	
+story	11 Saki	6	result							
+story	11 Saki	7	fight	RANDOM	15 (0xf) Nature 10,000 Years After	11 (0xb) Need for Speed / bgm_04.ogg	0/0		4 6 8 9	
+story	11 Saki	8	result							
+story	11 Saki	9	fight	RANDOM	15 (0xf) Nature 10,000 Years After	17 (0x11) Ribbon / bgm_10.ogg	0/0		4 6 8 9	
+story	11 Saki	10	result							
+story	11 Saki	11	conversation					TEXT_CONVERSATION091 backdrop 16 (0x10) Crashed Spaceship		
+story	11 Saki	12	fight	7 Sham	16 (0x10) Crashed Spaceship	18 (0x12) Movin' Out / bgm_11.ogg	0/0		4 6 8 9	
+story	11 Saki	13	result							
+story	11 Saki	14	conversation					TEXT_CONVERSATION092 backdrop 19 (0x13) Sumika's Hideout		
+story	11 Saki	15	fight	18 Sumika2nd	19 (0x13) Sumika's Hideout	19 (0x13) Accelerator / bgm_13.ogg	0/0		4 6 8 9	timer 999 (Game Init: story && stage 0x13)
+story	11 Saki	16	result							
+story	11 Saki	17	conversation					TEXT_CONVERSATION093 backdrop 19 (0x13) Sumika's Hideout		
+story	11 Saki	18	ending							
+story	12 Iru	0	conversation					TEXT_CONVERSATION100 backdrop 15 (0xf) Nature 10,000 Years After		
+story	12 Iru	1	fight	4 Alte	15 (0xf) Nature 10,000 Years After	16 (0x10) Expendables / bgm_09.ogg	0/0		5 6 7 9	
+story	12 Iru	2	result							
+story	12 Iru	3	fight	RANDOM	15 (0xf) Nature 10,000 Years After	12 (0xc) Black Hole / bgm_05.ogg	0/0		5 6 7 9	
+story	12 Iru	4	result							
+story	12 Iru	5	fight	RANDOM	15 (0xf) Nature 10,000 Years After	13 (0xd) Distant Thunder / bgm_06.ogg	0/0		5 6 7 9	
+story	12 Iru	6	result							
+story	12 Iru	7	fight	RANDOM	15 (0xf) Nature 10,000 Years After	11 (0xb) Need for Speed / bgm_04.ogg	0/0		5 6 7 9	
+story	12 Iru	8	result							
+story	12 Iru	9	fight	RANDOM	15 (0xf) Nature 10,000 Years After	17 (0x11) Ribbon / bgm_10.ogg	0/0		5 6 7 9	
+story	12 Iru	10	result							
+story	12 Iru	11	conversation					TEXT_CONVERSATION101 backdrop 16 (0x10) Crashed Spaceship		
+story	12 Iru	12	fight	8 Nath	16 (0x10) Crashed Spaceship	18 (0x12) Movin' Out / bgm_11.ogg	0/0		5 6 7 9	
+story	12 Iru	13	result							
+story	12 Iru	14	conversation					TEXT_CONVERSATION102 backdrop 19 (0x13) Sumika's Hideout		
+story	12 Iru	15	fight	18 Sumika2nd	19 (0x13) Sumika's Hideout	19 (0x13) Accelerator / bgm_13.ogg	0/0		5 6 7 9	timer 999 (Game Init: story && stage 0x13)
+story	12 Iru	16	result							
+story	12 Iru	17	conversation					TEXT_CONVERSATION103 backdrop 19 (0x13) Sumika's Hideout		
+story	12 Iru	18	ending							
+story	13 Nanako	0	conversation					TEXT_CONVERSATION110 backdrop 15 (0xf) Nature 10,000 Years After		
+story	13 Nanako	1	fight	14 Kae	15 (0xf) Nature 10,000 Years After	16 (0x10) Expendables / bgm_09.ogg	0/0		4 5 7 8 9	
+story	13 Nanako	2	result							
+story	13 Nanako	3	fight	RANDOM	15 (0xf) Nature 10,000 Years After	12 (0xc) Black Hole / bgm_05.ogg	0/0		4 5 7 8 9	
+story	13 Nanako	4	result							
+story	13 Nanako	5	fight	RANDOM	15 (0xf) Nature 10,000 Years After	13 (0xd) Distant Thunder / bgm_06.ogg	0/0		4 5 7 8 9	
+story	13 Nanako	6	result							
+story	13 Nanako	7	fight	RANDOM	15 (0xf) Nature 10,000 Years After	11 (0xb) Need for Speed / bgm_04.ogg	0/0		4 5 7 8 9	
+story	13 Nanako	8	result							
+story	13 Nanako	9	fight	RANDOM	15 (0xf) Nature 10,000 Years After	17 (0x11) Ribbon / bgm_10.ogg	0/0		4 5 7 8 9	
+story	13 Nanako	10	result							
+story	13 Nanako	11	conversation					TEXT_CONVERSATION111 backdrop 16 (0x10) Crashed Spaceship		
+story	13 Nanako	12	fight	6 Mira	16 (0x10) Crashed Spaceship	18 (0x12) Movin' Out / bgm_11.ogg	0/0		4 5 7 8 9	
+story	13 Nanako	13	result							
+story	13 Nanako	14	conversation					TEXT_CONVERSATION112 backdrop 19 (0x13) Sumika's Hideout		
+story	13 Nanako	15	fight	18 Sumika2nd	19 (0x13) Sumika's Hideout	19 (0x13) Accelerator / bgm_13.ogg	0/0		4 5 7 8 9	timer 999 (Game Init: story && stage 0x13)
+story	13 Nanako	16	result							
+story	13 Nanako	17	conversation					TEXT_CONVERSATION113 backdrop 19 (0x13) Sumika's Hideout		
+story	13 Nanako	18	ending							
+story	14 Kae	0	conversation					TEXT_CONVERSATION120 backdrop 15 (0xf) Nature 10,000 Years After		
+story	14 Kae	1	fight	13 Nanako	15 (0xf) Nature 10,000 Years After	16 (0x10) Expendables / bgm_09.ogg	0/0		4 6 7 8 9	
+story	14 Kae	2	result							
+story	14 Kae	3	fight	RANDOM	15 (0xf) Nature 10,000 Years After	12 (0xc) Black Hole / bgm_05.ogg	0/0		4 6 7 8 9	
+story	14 Kae	4	result							
+story	14 Kae	5	fight	RANDOM	15 (0xf) Nature 10,000 Years After	13 (0xd) Distant Thunder / bgm_06.ogg	0/0		4 6 7 8 9	
+story	14 Kae	6	result							
+story	14 Kae	7	fight	RANDOM	15 (0xf) Nature 10,000 Years After	11 (0xb) Need for Speed / bgm_04.ogg	0/0		4 6 7 8 9	
+story	14 Kae	8	result							
+story	14 Kae	9	fight	RANDOM	15 (0xf) Nature 10,000 Years After	17 (0x11) Ribbon / bgm_10.ogg	0/0		4 6 7 8 9	
+story	14 Kae	10	result							
+story	14 Kae	11	conversation					TEXT_CONVERSATION121 backdrop 16 (0x10) Crashed Spaceship		
+story	14 Kae	12	fight	5 Tsih	16 (0x10) Crashed Spaceship	18 (0x12) Movin' Out / bgm_11.ogg	0/0		4 6 7 8 9	
+story	14 Kae	13	result							
+story	14 Kae	14	conversation					TEXT_CONVERSATION122 backdrop 19 (0x13) Sumika's Hideout		
+story	14 Kae	15	fight	18 Sumika2nd	19 (0x13) Sumika's Hideout	19 (0x13) Accelerator / bgm_13.ogg	0/0		4 6 7 8 9	timer 999 (Game Init: story && stage 0x13)
+story	14 Kae	16	result							
+story	14 Kae	17	conversation					TEXT_CONVERSATION123 backdrop 19 (0x13) Sumika's Hideout		
+story	14 Kae	18	ending							
+story	15 Kyoko	0	conversation					TEXT_CONVERSATION130 backdrop 15 (0xf) Nature 10,000 Years After		
+story	15 Kyoko	1	fight	8 Nath	15 (0xf) Nature 10,000 Years After	16 (0x10) Expendables / bgm_09.ogg	0/0		5 6 7 9	
+story	15 Kyoko	2	result							
+story	15 Kyoko	3	fight	RANDOM	15 (0xf) Nature 10,000 Years After	12 (0xc) Black Hole / bgm_05.ogg	0/0		5 6 7 9	
+story	15 Kyoko	4	result							
+story	15 Kyoko	5	fight	RANDOM	15 (0xf) Nature 10,000 Years After	13 (0xd) Distant Thunder / bgm_06.ogg	0/0		5 6 7 9	
+story	15 Kyoko	6	result							
+story	15 Kyoko	7	fight	RANDOM	15 (0xf) Nature 10,000 Years After	11 (0xb) Need for Speed / bgm_04.ogg	0/0		5 6 7 9	
+story	15 Kyoko	8	result							
+story	15 Kyoko	9	fight	RANDOM	15 (0xf) Nature 10,000 Years After	17 (0x11) Ribbon / bgm_10.ogg	0/0		5 6 7 9	
+story	15 Kyoko	10	result							
+story	15 Kyoko	11	conversation					TEXT_CONVERSATION131 backdrop 16 (0x10) Crashed Spaceship		
+story	15 Kyoko	12	fight	4 Alte	16 (0x10) Crashed Spaceship	18 (0x12) Movin' Out / bgm_11.ogg	0/0		5 6 7 9	
+story	15 Kyoko	13	result							
+story	15 Kyoko	14	conversation					TEXT_CONVERSATION132 backdrop 19 (0x13) Sumika's Hideout		
+story	15 Kyoko	15	fight	18 Sumika2nd	19 (0x13) Sumika's Hideout	19 (0x13) Accelerator / bgm_13.ogg	0/0		5 6 7 9	timer 999 (Game Init: story && stage 0x13)
+story	15 Kyoko	16	result							
+story	15 Kyoko	17	conversation					TEXT_CONVERSATION133 backdrop 19 (0x13) Sumika's Hideout		
+story	15 Kyoko	18	ending							
+story	16 Hime	0	conversation					TEXT_CONVERSATION140 backdrop 15 (0xf) Nature 10,000 Years After		
+story	16 Hime	1	fight	9 StarBreaker	15 (0xf) Nature 10,000 Years After	16 (0x10) Expendables / bgm_09.ogg	0/0		4 5 6 7 8	
+story	16 Hime	2	result							
+story	16 Hime	3	fight	RANDOM	15 (0xf) Nature 10,000 Years After	12 (0xc) Black Hole / bgm_05.ogg	0/0		4 5 6 7 8	
+story	16 Hime	4	result							
+story	16 Hime	5	fight	RANDOM	15 (0xf) Nature 10,000 Years After	13 (0xd) Distant Thunder / bgm_06.ogg	0/0		4 5 6 7 8	
+story	16 Hime	6	result							
+story	16 Hime	7	fight	RANDOM	15 (0xf) Nature 10,000 Years After	11 (0xb) Need for Speed / bgm_04.ogg	0/0		4 5 6 7 8	
+story	16 Hime	8	result							
+story	16 Hime	9	fight	RANDOM	15 (0xf) Nature 10,000 Years After	17 (0x11) Ribbon / bgm_10.ogg	0/0		4 5 6 7 8	
+story	16 Hime	10	result							
+story	16 Hime	11	conversation					TEXT_CONVERSATION141 backdrop 16 (0x10) Crashed Spaceship		
+story	16 Hime	12	fight	3 Sora	16 (0x10) Crashed Spaceship	18 (0x12) Movin' Out / bgm_11.ogg	0/0		4 5 6 7 8	
+story	16 Hime	13	result							
+story	16 Hime	14	conversation					TEXT_CONVERSATION142 backdrop 19 (0x13) Sumika's Hideout		
+story	16 Hime	15	fight	18 Sumika2nd	19 (0x13) Sumika's Hideout	19 (0x13) Accelerator / bgm_13.ogg	0/0		4 5 6 7 8	timer 999 (Game Init: story && stage 0x13)
+story	16 Hime	16	result							
+story	16 Hime	17	conversation					TEXT_CONVERSATION143 backdrop 19 (0x13) Sumika's Hideout		
+story	16 Hime	18	ending							

@@ -1,0 +1,30 @@
+# Font families loaded by FUN_00593660 (startup, FUN_006325f0; again on language change FUN_00647d20). Each family = list of (size, font id) for sizes 1080/960/768 (0x438/0x3c0/0x300, FUN_005946c0) that exist. lang=1: font/<langdir>/<name>_<size>.fnt (langdir FUN_00597a50: 0 en,1 jp,2/3 cn,6 ko,7 ru, 4/5 -> en); lang=0: font/<name>_<size>.fnt. Picked per text by FUN_00594570(family, H=DAT_009b0fe0): smallest size >= H (else largest); scale = DAT_00881eb8 / size. BMFont v3 binary (CFontLoaderBinaryFormat FUN_004944a0). en metrics from extracted/font (size/lineHeight/base in px of the .fnt).
+family	global	langdir	files_en(size:lineH/base)	face_en	outline_px	used_for
+system	DAT_009b0e58	yes	1080:48/39 960:42/34 768:32/26	Control Freak	0	announce/help line FUN_00495170
+menu	DAT_009b0e70	yes	1080:40/33 960:36/29 768:28/23	NationalyzeALP_Plus (white, black edge baked)	0	main-menu items, config labels/values, BGM names, most texts (default)
+menubig	DAT_009b0e7c	yes	1080:72/59 960:64/52 768:52/42	NationalyzeALP_Plus	1	sub-menu row titles (difficulty, match, training, tournaments, command)
+menulabel	DAT_009b0e88	yes	1080:24/19 960:22/18 768:18/15	Arial (black glyphs)	0	MENULABEL_* header pills
+menuprofiletabs	DAT_009b0f00	yes	1080:40/31	Noto Sans	2	online profile
+menuprofilestats_entry	DAT_009b0f0c	yes	1080:36/29	Noto Sans	2	online profile
+menuprofilestats_totalnumbers_big	DAT_009b0f18	no	1080:56/44	Noto Sans	2	online profile
+menuprofilestats_totalnumbers_biggest	DAT_009b0f24	no	1080:124/97	Noto Sans	2	online profile
+menuprofilestats_totalnumbers_biggestpercent	DAT_009b0f30	no	1080:62/49	Noto Sans	2	online profile
+avataritems	DAT_009b0f3c	yes	1080:40/31	Noto Sans	2	online avatar
+menusubtitle	DAT_009b0e94	yes	1080:32/26 960:28/23 768:24/19	Arial (black, white edge)	1	*_SUBTITLE lines under sub-menu rows
+winquote	DAT_009b0ea0	yes	1080:52/39 960:46/35 768:34/26	Exo	2	result screen win quote
+playernames_common	DAT_009b0eac	no	1080:40/31	Noto Sans	2	Steam names
+playernames_game	DAT_009b0eb8	no	1080:44/36	Impact	2	Steam names in game
+playercountries	DAT_009b0ec4	no	1080:30/24	Noto Sans	2	online
+menuplayerstatus	DAT_009b0edc	yes	1080:32/25	Noto Sans	1	online lobby
+menuplayerframe_label	DAT_009b0ee8	no	1080:26/20	Noto Sans	0	online lobby
+menuplayerframe_numbers	DAT_009b0ef4	no	1080:34/27	Noto Sans	0	online lobby
+menulobbylist	DAT_009b0ed0	yes	1080:32/25	Noto Sans	1	online lobby list
+memory	DAT_009b0f48	no	1080:39/32	Impact	0	Memory (replay list) mode names
+memory_small	DAT_009b0f54	no	1080:25/21	Impact	0	Memory difficulty names
+languagenames	DAT_009b0f60	no	1080:40/31 960:36/28 768:28/22	Noto Sans CJK JP Bold	2	config language values
+chat_common (+chat_cjk_1080, chat_thai_1080 glyphs merged in by FUN_0047b090; family glyphs also merged into other fonts via FUN_0047b250)	DAT_009b0f6c	no	1080	Noto Sans (+CJK/Thai)	0	online chat
+menunumbers_1080	merged into menu DAT_009b0e70 (lang 1 only, FUN_0047b170)	jp	1080:40/31	Noto Sans	2	JP digit override
+commandlist_names	DAT_009b0f?? (UNVERIFIED global)	yes	1080:30/24	Noto Sans	1	pause command list
+commandlist_categories	(UNVERIFIED global)	yes	1080:29/24	Impact	2	pause command list
+textinput	(UNVERIFIED global)	no	1080:40/31	Noto Sans	2	online text entry
+dialogue	(not loaded by FUN_00593660; conversation = section C)	yes	1080:52/39 960:46/35 768:34/26	Exo	0	conversation
