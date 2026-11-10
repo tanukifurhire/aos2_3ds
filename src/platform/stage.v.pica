@@ -1,0 +1,68 @@
+; Stage background vertex shader (PICA200) — the runtime-assembled AoS2 stage
+; shader (docs/re/stages.md §3.3) collapsed into one program:
+;   position : clip = mvp * pos            (mvp = tilt * (world*view*proj)^T, z remapped)
+;   colour   : 0x400 material / 0x800 min((N.L + amb) * light * material, 1) / particles: vertex colour
+;              (one branch-free formula, selected by uniforms)
+;   texcoord0: (u + off.u, 1 - (v + off.v))  (D3D v=0 is the image top)
+;   texcoord1: (fog, 0)  fog = dot(fogv, pos) = z_view * -1/(end-start) + end/(end-start)
+
+.fvec mvp[4]
+.fvec fogv
+.fvec light      ; xyz = -(light dir in object space), w = ambient
+.fvec lcolor     ; rgb = light colour
+.fvec mcolor     ; material diffuse rgba
+.fvec uvoff      ; xy = uv offset
+.fvec vscale     ; vertex colour from v1: v1*vscale + vbias
+.fvec vbias
+
+.constf consts(0.0, 1.0, 0.003921569, 0.5)
+.alias zero  consts.xxxx
+.alias one   consts.yyyy
+.alias inv255 consts.zzzz
+
+.out outpos position
+.out outtc0 texcoord0
+.out outtc1 texcoord1
+.out outclr color
+
+.alias inpos v0
+.alias innrm v1   ; normal (meshes) or RGBA bytes (particles)
+.alias intc  v2
+
+.proc main
+	mov r0.xyz, inpos
+	mov r0.w, one
+
+	dp4 outpos.x, mvp[0], r0
+	dp4 outpos.y, mvp[1], r0
+	dp4 outpos.z, mvp[2], r0
+	dp4 outpos.w, mvp[3], r0
+
+	; texcoords
+	add r1.xy, uvoff.xy, intc.xy
+	add r1.y, one, -r1.y
+	mov r1.zw, zero
+	mov outtc0, r1
+
+	dp4 r2.x, fogv, r0
+	max r2.x, zero, r2.x
+	min r2.x, one, r2.x
+	mov r2.yzw, zero
+	mov outtc1, r2
+
+	; colour = clamp((N.L + amb) * light * material * vc), vc = innrm*vscale + vbias
+	; (meshes: light/lcolor = (0,0,0,1)/(1,1,1) when unlit, vscale 0 / vbias 1;
+	;  particles: light (0,0,0,1), vscale 1/255 -> RGBA bytes of v1)
+	dp3 r3.x, light, innrm
+	add r3.x, light.w, r3.x
+	mul r4.xyz, lcolor.xyz, r3.xxx
+	mov r4.w, one
+	mul r4, mcolor, r4
+	mul r5, vscale, innrm
+	add r5, vbias, r5
+	mul r4, r4, r5
+	min r4, one, r4
+	max r4, zero, r4
+	mov outclr, r4
+	end
+.end

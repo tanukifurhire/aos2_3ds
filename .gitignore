@@ -1,0 +1,25 @@
+# Build outputs and extracted game data (copyrighted; regenerate with ./build.sh)
+/build/
+/extracted/
+/game_path.txt
+nul
+
+# Project-local toolchains (fetched, not authored here)
+/tools/devkitpro/
+/tools/jdk/
+/tools/zig/
+/tools/ghidra/
+/tools/azahar/
+
+# Reverse-engineering workspace: Ghidra project and the decompiled corpus of
+# aos2.exe are derived from the game binary; keep them local
+/tools/re/project/
+/tools/re/dec/
+/tools/re/out/
+/tools/re/*.log
+
+# Go tool binaries and test executables
+*.exe
+/tests/bin/
+*.o
+/tools/re/manual.txt
