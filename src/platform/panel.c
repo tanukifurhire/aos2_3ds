@@ -234,7 +234,7 @@ void panel_match_begin(const aos_world *w, int local)
 	text_width(FONT_SYSTEM, "0", 1.0f); /* load the fonts now, not in the first match frame */
 	memset(lab, 0, sizeof lab);
 	for (int k = 0; k < HT_NSLOT; k++) {
-		const ht_move *m = ht_slot(pl_chara, k);
+		const ht_move *m = ht_slot(pl_chara, ht_pos_slot(pl_chara, k));
 		if (!m->key)
 			continue;
 		if (m->alt)
@@ -310,9 +310,9 @@ int panel_touch(const aos_world *w)
 	if (!touch_down) { /* touch-down frame: latch the button if its hyper can start */
 		touch_down = true;
 		int k = pl_on ? hit(x, y) : -1;
-		touch_slot = (int8_t)(k >= 0 && ht_ready(w, pl_local, k) ? k : -1);
+		touch_slot = (int8_t)(k >= 0 && ht_ready(w, pl_local, ht_pos_slot(pl_chara, k)) ? k : -1);
 	}
-	return touch_slot;
+	return touch_slot < 0 ? -1 : ht_pos_slot(pl_chara, touch_slot); /* touch_slot: screen position */
 }
 
 /* ================================================================ drawing helpers */
@@ -351,12 +351,13 @@ enum { S_EMPTY, S_READY, S_POOR, S_LOCKED };
 static int slot_state(const aos_world *w, int k)
 {
 	const aos_player *p = &w->p[pl_local];
-	const ht_move *m = ht_slot(p->id, k);
+	const int s = ht_pos_slot(p->id, k); /* k: screen position */
+	const ht_move *m = ht_slot(p->id, s);
 	if (!m->key)
 		return S_EMPTY;
 	if (p->hyper < m->cost)
 		return S_POOR;
-	return ht_ready(w, pl_local, k) ? S_READY : S_LOCKED;
+	return ht_ready(w, pl_local, s) ? S_READY : S_LOCKED;
 }
 
 static void text_shadowed(font_id f, const char *s, float x, float y, int align, unsigned rgb, float a, float sc,
@@ -410,7 +411,7 @@ static void draw_label(int k, int state, float dy)
 		text_draw(FONT_SYSTEM, l->alt, (lx0 + lx1) / 2, ly1 + 6, TEXT_CENTER,
 		          ui_c2d(argb(live ? 0.9f : 0.6f, 0xffffff)), 0.68f, lx1 - lx0);
 	/* cost gems: lit while the gauge pays for it */
-	int n = (int)(ht_slot(pl_chara, k)->cost + 0.5f);
+	int n = (int)(ht_slot(pl_chara, ht_pos_slot(pl_chara, k))->cost + 0.5f);
 	float gx = area[k].gx - (float)(n - 1) * 7, gy = area[k].gy + dy;
 	for (int i = 0; i < n; i++)
 		gem(gx + 14 * (float)i, gy, 4.5f, state != S_POOR);
@@ -418,7 +419,7 @@ static void draw_label(int k, int state, float dy)
 
 static unsigned state_base(int k, int state)
 {
-	unsigned base = slot_col[k];
+	unsigned base = slot_col[ht_pos_slot(pl_chara, k)]; /* colour follows the hyper, not the position */
 	if (state == S_POOR)
 		return mixc(base, 0x50566a, 0.72f); /* greyed: the gauge does not pay for it */
 	if (state == S_LOCKED)
@@ -443,7 +444,7 @@ static void draw_quadrant(int k, int state, bool pressed)
 		return;
 	}
 	bool live = state == S_READY || pressed; /* pressed: the hyper just started, show the touch, not the lock */
-	unsigned base = pressed ? slot_col[k] : state_base(k, state);
+	unsigned base = pressed ? slot_col[ht_pos_slot(pl_chara, k)] : state_base(k, state);
 	float a = pressed ? 0.92f : live ? 0.74f : 0.62f;
 	unsigned outer = mixc(base, 0xffffff, pressed ? 0.45f : 0.22f), inner = mixc(base, 0x000000, pressed ? 0.25f : 0.5f);
 	u32 co = ui_c2d(argb(a, outer)), ci = ui_c2d(argb(a + 0.12f > 1 ? 1 : a + 0.12f, inner));

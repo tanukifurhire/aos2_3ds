@@ -169,9 +169,24 @@ static void test_ready(void)
 	CHECK(!ht_ready(&W, 0, HT_LEFT), "opponent in Accel: no hyper (FUN_00780950)");
 }
 
+static void test_layout(void)
+{
+	/* left/right (thumb) quadrants filled first: Suguri/Sora keep the gap at the bottom; the map is its own inverse */
+	for (int k = 0; k < HT_NSLOT; k++)
+		CHECK(ht_pos_slot(AOS_CH_SUGURI, k) == k && ht_pos_slot(AOS_CH_SORA, k) == k, "gap stays at the bottom");
+	CHECK(!ht_slot(AOS_CH_SUGURI, HT_DOWN)->key && !ht_slot(AOS_CH_SORA, HT_DOWN)->key, "bottom empty");
+	for (int c = AOS_CH_SORA; c < AOS_NUM_CHARS; c++)
+		CHECK(ht_slot(c, ht_pos_slot(c, HT_LEFT))->key && ht_slot(c, ht_pos_slot(c, HT_RIGHT))->key, "thumbs filled");
+	CHECK(ht_pos_slot(AOS_CH_NATH, HT_DOWN) == HT_DOWN && ht_pos_slot(AOS_CH_NATH, HT_UP) == HT_UP, "nath as is");
+	for (int c = AOS_CH_SORA; c < AOS_NUM_CHARS; c++)
+		for (int k = 0; k < HT_NSLOT; k++)
+			CHECK(ht_pos_slot(c, ht_pos_slot(c, k)) == k, "involution");
+}
+
 int main(void)
 {
 	aos_register_all();
+	test_layout();
 	test_all_slots();
 	test_physical_held();
 	test_mask_edges();

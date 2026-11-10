@@ -13,11 +13,11 @@
 
 /* Hyper rows of each character's standard dispatch, by slot (UP S+H, LEFT H, RIGHT B+H, DOWN D+H, CENTER
  * S+B+H), names from the PC's pause command list (FUN_00756600 & co., docs/re/<char>.md "Hypers"). Sora's
- * D+H (0x17, the random-fan Hyper Spread, sora.md §2) is the command list's "Hyper Spread (also while
- * dashing)". Suguri has no D+H row (D held + H = Hyper Rifle); Sumika's second form has no S+B+H. */
+ * D+H (0x17, the random-fan Hyper Spread, sora.md §2) shares the name of H, so its slot is left empty (user
+ * choice; the H button clears a held L so it always gives the plain one). Suguri has no D+H row (D held + H = Hyper Rifle); Sumika's second form has no S+B+H. */
 static const ht_move slots[AOS_NUM_CHARS][HT_NSLOT] = {
 	[AOS_CH_SORA] = {M1(K("SORA", "BOISTEROUSDANCE")), M1(K("SORA", "HYPERSPREAD")), M1(K("SORA", "HYPERLAUNCHER")),
-	                 M1(K("SORA", "HYPERSPREAD")), M3(K("SORA", "UNLIMITEDCHARGE"))},
+	                 NONE, M3(K("SORA", "UNLIMITEDCHARGE"))},
 	[AOS_CH_ALTE] = {M1(K("ALTE", "SHOCKRODPUNISHER")), M1A(K("ALTE", "SEARCHLIGHTPANEL"), K("ALTE", "SLPSPARK")),
 	                 M1(K("ALTE", "SALVOFIRE")), M1(K("ALTE", "SHOCKBALL")), M3(K("ALTE", "DESPERATION"))},
 	[AOS_CH_TSIH] = {M1(K("TSIH", "STEALTHON")), M1(K("TSIH", "AWHOLELOTOFBENDYBEAMS")), M1(K("TSIH", "ALOTOFROCKS")),
@@ -65,6 +65,29 @@ const ht_move *ht_slot(int chara, int slot)
 	return &slots[chara][slot];
 }
 
+int ht_pos_slot(int chara, int pos)
+{
+	if (chara < 0 || chara >= AOS_NUM_CHARS || pos < 0 || pos >= HT_NSLOT)
+		return pos;
+	const ht_move *s = slots[chara];
+	/* left/right are under the thumbs: an empty one takes a top/bottom move (bottom first), so the gap ends up at
+	 * the top or bottom */
+	const int side[2] = {HT_LEFT, HT_RIGHT};
+	int donor[2] = {-1, -1};
+	bool used_d = false, used_u = false;
+	for (int i = 0; i < 2; i++)
+		if (!s[side[i]].key) {
+			if (s[HT_DOWN].key && !used_d)
+				donor[i] = HT_DOWN, used_d = true;
+			else if (s[HT_UP].key && !used_u)
+				donor[i] = HT_UP, used_u = true;
+		}
+	for (int i = 0; i < 2; i++)
+		if (donor[i] >= 0 && (pos == side[i] || pos == donor[i]))
+			return pos == side[i] ? donor[i] : side[i];
+	return pos;
+}
+
 bool ht_ready(const aos_world *w, int player, int slot)
 {
 	const aos_player *p = &w->p[player & 1];
@@ -98,7 +121,7 @@ uint16_t ht_apply(ht_state *s, int chara, int scheme, int slot, uint16_t mask)
 	if (scheme == 0) {
 		/* FUN_0075a030 & co.: first match of S+B+H, S+H, B+H, D+H, H (Iru: D+S+H before S+H — a held L
 		 * picks the dash version, iru.md §2) */
-		bool has_d = ht_slot(chara, HT_DOWN)->key != NULL;
+		bool has_d = ht_slot(chara, HT_DOWN)->key != NULL || chara == AOS_CH_SORA; /* Sora: D+H row kept off the panel */
 		switch (slot) {
 		case HT_CENTER: set = AOS_IN_S | AOS_IN_B | AOS_IN_H; break;
 		case HT_UP: set = AOS_IN_S | AOS_IN_H; clear = AOS_IN_B; break;

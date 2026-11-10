@@ -918,8 +918,11 @@ static float glyph_shoulder(float x, float cy, char letter, float a)
 /* touch hyper button: a small map of the bottom panel with the move's button lit */
 /* touch hyper button: a small map of the bottom panel (X-cut quadrants + the Accel hexagon) with the move's
  * button lit */
+static int ml_chara; /* the move list's character (pause_draw_bottom): its screen layout of the slots */
+
 static float glyph_touch(float x, float cy, int slot, float a)
 {
+	const int pos = ht_pos_slot(ml_chara, slot);
 	const float w = 26, h = 18, y0 = cy - h / 2, mx = x + w / 2, my = y0 + h / 2;
 	panel_chamfer(x - 1, y0 - 1, x + w + 1, y0 + h + 1, 3, a8(a) | 0xc8d0e0, a8(a) | 0x707890);
 	ui_rect(x, y0, x + w, y0 + h, a8(a) | 0x0a1024);
@@ -928,7 +931,7 @@ static float glyph_touch(float x, float cy, int slot, float a)
 	            qy[4][2] = {{y0, y0}, {y0 + 1, y0 + h - 1}, {y0 + 1, y0 + h - 1}, {y0 + h, y0 + h}};
 	const float ax[4] = {0, -1, 1, 0}, ay[4] = {-1, 0, 0, 1};
 	for (int k = 0; k < 4; k++) {
-		u32 c = c2d(a8(a) | (k == slot ? panel_slot_color(k) : 0x3a4258));
+		u32 c = c2d(a8(a) | (k == pos ? panel_slot_color(slot) : 0x3a4258));
 		C2D_DrawTriangle(qx[k][0], qy[k][0], c, qx[k][1], qy[k][1], c, mx + ax[k], my + ay[k], c, UI_DEPTH);
 	}
 	u32 cc = c2d(a8(a) | (slot == HT_CENTER ? panel_slot_color(HT_CENTER) : 0x4a5268)), rim = c2d(a8(a) | 0x0a1024);
@@ -1098,6 +1101,7 @@ static void draw_item(const cl_item *it, float y, float a)
 
 void pause_draw_bottom(int chara)
 {
+	ml_chara = chara;
 	pause_state *p = &g_pause;
 	if (!p->on) {
 		cl_free();

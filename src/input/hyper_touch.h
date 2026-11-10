@@ -33,6 +33,10 @@ typedef struct {
 
 /* Slot description for engine character id (3..18). Never NULL (an empty move for unknown ids). */
 const ht_move *ht_slot(int chara, int slot);
+/* Screen position <-> slot (an involution, so it maps both ways). Left/right are where the thumbs rest, so they
+ * are filled first: an empty left/right slot swaps with the bottom (then top) move and the gap shows at the
+ * top/bottom (user layout choice). Every current character has its gaps at the bottom/centre already. */
+int ht_pos_slot(int chara, int pos);
 /* The slot exists, the gauge pays for it and FUN_00780950 allows a hyper now. */
 bool ht_ready(const aos_world *w, int player, int slot);
 
