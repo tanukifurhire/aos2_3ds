@@ -10,6 +10,48 @@ No game data is in this repository: the build extracts it from your own copy of 
 
 ## Building
 
+### With the builder window (no Git Bash needed)
+
+Requirements: Windows, **Go** on PATH (https://go.dev/dl/), internet access for the one-time setup, and an
+installed copy of *Acceleration of SUGURI 2* (the folder with `aos2.exe`).
+
+1. Double-click `tools/aosbuild/make_exe.cmd` once. It builds `aosbuild.exe` into the repo root.
+2. Open `aosbuild.exe`. On a fresh clone press **Set up toolchain**. It downloads devkitARM, libctru,
+   citro2d/3d, tremor, tex3ds, picasso and 3dstools into `tools/devkitpro/`, and makerom and bannertool into
+   `tools/ctrtools/`. If Python 3.12+ is installed, it also sets up [pycgfx](https://github.com/skyfloogle/pycgfx)
+   in a virtual env under `tools/pycgfx/` for the animated CIA banner. Nothing is installed system-wide.
+3. Pick the game folder, choose **Homebrew (.3dsx)**, **CIA** or **Both**, and press **Build**. The first
+   build extracts and packs all assets (a few minutes). Later builds reuse them, and re-pack on their own when
+   an asset tool changed. Tick **Rebuild assets** to force a re-pack.
+4. Copy the result to the SD card: `aos2_3ds.3dsx` into `/3ds/aos2_3ds/` (Homebrew Launcher), or
+   `aos2_3ds.cia` anywhere, then install it with FBI. **Open output folder** opens the folder they are in.
+
+**CIA banner and icon.** The HOME-menu banner is a 3D scene. The transparent title logo
+(`menuMdl/ttl_logo`) floats with no background. With **Animated CIA banner** ticked (the default), Suguri
+dashes back and forth in front of it on a 3 s loop: right to left, then mirrored left to right. Each dash is
+eased (fastest mid-screen, swinging toward the viewer, slowing to a stop near the edge), and at each end she
+turns around with a Paper Mario style flip before dashing back. She uses her in-game upright dash frames
+(`charaSuguriA/sg_dsh06`–`08`, ping-ponged at 20 fps like the game) with one afterimage; the logo stays still.
+Unticked, the same scene is frozen mid-dash. The real HOME menu only accepts linear position
+keys on top-level nodes, so every flip-book swaps quads by parking them off-screen; `aosbuild bannertest`
+builds small test CIAs for checking a new banner idea on the console.
+The builder writes the scene as glTF (`<output>/cia/anim/`) and pycgfx converts it to
+`<output>/cia/banner.cgfx`. `<output>/cia/banner_preview.gif` is a rough 2D preview. If pycgfx is missing or
+fails, the CIA gets the flat transparent `banner.png` instead. The icon is the game's own icon, read from
+`aos2.exe`. The banner sound is `assets/cia/jingle.wav` (git-ignored, your own file; the HOME menu plays about
+3 s), or else the menu "decide" sound. If the HOME menu ever freezes on the animated banner, untick the option
+and rebuild.
+
+The status tiles show what is missing. Each run's log is also written to `<output>/aosbuild.log`. Settings
+and the downloaded background image live in `.aosbuild/` (git-ignored). Assets are re-packed automatically
+when an asset tool (aos2pack, aos2mesh, ...) changed since the last pack.
+
+Commands, for scripting: `aosbuild setup`, `aosbuild 3dsx|cia|both [-rebuild] [-profile]` and
+`aosbuild status`. From Git Bash, run them on `./aosbuild.exe`. cmd and PowerShell
+don't wait for a windowed exe, so there use `go run ./tools/aosbuild <command>`.
+
+### With Git Bash
+
 Requirements: Windows with **Git Bash**, **Go** on PATH (https://go.dev/dl/), internet access for the
 one-time setup, and an installed copy of *Acceleration of SUGURI 2* (the folder with `aos2.exe`).
 
@@ -66,7 +108,7 @@ src/net/      rollback netplay and 3DS local wireless (UDS) transport
 src/input/    button mapping (L Dash, R Shield (L+R too), A/B weapons, X/Y specials, L,L Hyper Dash; hypers = touch buttons)
 tools/        aos2extract (unpack/decrypt game data), aos2pack (atlases, fonts, menu art), aos2mesh
               (stage meshes), aos2story (story data), dkpfetch (portable devkitPro fetcher), re/ (RE helpers),
-              setup.sh (fresh-clone toolchain setup)
+              setup.sh (fresh-clone toolchain setup), aosbuild (builder window/CLI: setup, build, CIA)
 tests/        host tests (built with zig cc)
 docs/         status, formats, perf, runbook; docs/re/ reverse-engineering specs
 build.sh      -> build/aos2_3ds.3dsx

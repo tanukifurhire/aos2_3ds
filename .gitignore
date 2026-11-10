@@ -2,6 +2,7 @@
 /build/
 /extracted/
 /game_path.txt
+/.aosbuild/
 nul
 
 # Project-local toolchains (fetched, not authored here)
@@ -11,6 +12,7 @@ nul
 /tools/ghidra/
 /tools/azahar/
 /tools/ctrtools/
+/tools/pycgfx/
 
 # Reverse-engineering workspace: Ghidra project and the decompiled corpus of
 # aos2.exe are derived from the game binary; keep them local

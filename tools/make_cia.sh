@@ -21,12 +21,12 @@ win() { if command -v cygpath >/dev/null 2>&1; then cygpath -m "$1"; else echo "
 
 W="$OUT/cia"
 mkdir -p "$W"
-python "$ROOT/tools/cia/make_art.py" "$(win "$ROOT/extracted")" "$(win "$W")"
+python "$ROOT/assets/cia/make_art.py" "$(win "$ROOT/extracted")" "$(win "$W")"
 "$BANNERTOOL" makebanner -i "$(win "$W/banner.png")" -a "$(win "$W/banner.wav")" -o "$(win "$W/banner.bnr")"
 "$BANNERTOOL" makesmdh -s "AoS2 3DS" -l "Acceleration of SUGURI 2 port - WIP" -p "personal research build" \
 	-i "$(win "$W/icon.png")" -o "$(win "$W/icon.smdh")"
 "$MAKEROM" -f cia -o "$(win "$OUT/aos2_3ds.cia")" -target t -exefslogo \
-	-elf "$(win "$OUT/aos2_3ds.elf")" -rsf "$(win "$ROOT/tools/cia/aos2_3ds.rsf")" \
+	-elf "$(win "$OUT/aos2_3ds.elf")" -rsf "$(win "$ROOT/assets/cia/aos2_3ds.rsf")" \
 	-icon "$(win "$W/icon.smdh")" -banner "$(win "$W/banner.bnr")" \
 	-DAPP_ROMFS="$(win "$OUT/romfs")"
 ls -la "$OUT/aos2_3ds.cia"
