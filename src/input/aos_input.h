@@ -1,17 +1,19 @@
 /*
  * aos_input — translates raw 3DS buttons into AoS2 actions.
  *
- * Mapping (user-specified):
- *   L  = Dash              R  = Hyper
+ * Mapping (user-specified, revised 2026-11-10: hypers moved to the touch
+ * screen, src/input/hyper_touch.h):
+ *   L  = Dash              R  = Shield
  *   A  = Weapon A          B  = Weapon B
  *   X  = Special A         Y  = Special B
- *   L+R pressed together   = Shield
+ *   L+R pressed together   = Shield (as before)
  *   L, L in quick succession = Hyper Dash
  *
- * Because Shield is a chord of the Dash and Hyper buttons, a lone L/R press is
- * held "pending" for up to `chord_window` frames to see whether the partner
- * bumper arrives. That adds up to `chord_window` frames of latency to Dash and
- * Hyper (0 disables the wait: only same-frame presses then form a Shield).
+ * R resolves to Shield at once. A lone L press is held "pending" for up to
+ * `chord_window` frames to see whether R arrives (then the pair is one Shield
+ * and no Dash comes out); an L press shortly after R (within `chord_window`)
+ * joins that Shield too. That adds up to `chord_window` frames of latency to
+ * Dash only (0 disables the wait: only same-frame presses then form a pair).
  *
  * The module is a pure function of (state, raw buttons) with no clock, I/O or
  * allocation, so it is deterministic and safe to re-simulate for rollback.
@@ -39,7 +41,7 @@ enum {
 enum {
 	AOS_EV_DASH       = 1u << 0,
 	AOS_EV_HYPER_DASH = 1u << 1,
-	AOS_EV_HYPER      = 1u << 2,
+	/* 1u << 2 was AOS_EV_HYPER (R = Hyper until 2026-11-10) */
 	AOS_EV_SHIELD     = 1u << 3,
 	AOS_EV_WEAPON_A   = 1u << 4,
 	AOS_EV_WEAPON_B   = 1u << 5,
@@ -51,7 +53,7 @@ enum {
 enum {
 	AOS_HELD_DASH       = 1u << 0, /* also set while a Hyper Dash is held */
 	AOS_HELD_HYPER_DASH = 1u << 1,
-	AOS_HELD_HYPER      = 1u << 2,
+	/* 1u << 2 was AOS_HELD_HYPER */
 	AOS_HELD_SHIELD     = 1u << 3,
 	AOS_HELD_WEAPON_A   = 1u << 4,
 	AOS_HELD_WEAPON_B   = 1u << 5,
@@ -60,7 +62,7 @@ enum {
 };
 
 typedef struct {
-	uint8_t chord_window;      /* max frames between L and R presses for Shield */
+	uint8_t chord_window;      /* max frames between L and R presses for one L+R Shield */
 	uint8_t double_tap_window; /* max frames between two L presses for Hyper Dash */
 } aos_input_cfg;
 
@@ -71,14 +73,13 @@ typedef enum {
 	AOS_RES_NONE = 0,   /* not pressed, or pressed and still pending */
 	AOS_RES_DASH,
 	AOS_RES_HYPER_DASH,
-	AOS_RES_HYPER,
 	AOS_RES_SHIELD,
 } aos_resolution;
 
 typedef struct {
 	uint8_t held;
 	uint8_t pending;
-	uint8_t age;        /* frames since press, while pending */
+	uint8_t age;        /* frames since the press (saturating) */
 	uint8_t resolution; /* aos_resolution for the current press */
 } aos_bumper;
 

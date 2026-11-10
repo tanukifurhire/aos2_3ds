@@ -9,6 +9,11 @@
  * client's first input packet if the ACK was lost). The start-time offset is
  * absorbed by the session's time sync.
  *
+ * The lobby is non-blocking (netl_*, polled once per frame by the local-wireless
+ * select scene netsel.c, which draws every state); the client's beacon scan runs
+ * on a worker thread so the select keeps animating. Only the match itself
+ * (netplay_match) owns the loop.
+ *
  * UNTESTED ON HARDWARE (needs two consoles); the session logic underneath is
  * host-tested by tests/test_rollback.c.
  */
@@ -19,6 +24,7 @@
 
 #include "../net/rollback.h"
 #include "../net/uds_link.h"
+#include "../input/hyper_touch.h"
 #include "../platform/bgm.h"
 #include "../platform/stage.h"
 #include "../platform/panel.h"
@@ -31,27 +37,6 @@
 static uint8_t pkt[0x600]; /* >= UDS_DATAFRAME_MAXSIZE */
 
 static uint32_t now_ms(void) { return (uint32_t)osGetTime(); }
-
-static void blank_top(C3D_RenderTarget *top)
-{
-	C3D_FrameBegin(C3D_FRAME_SYNCDRAW);
-	C2D_TargetClear(top, C2D_Color32(8, 10, 30, 255));
-	C2D_SceneBegin(top);
-	C3D_FrameEnd(0);
-	audio_se_frame();
-	music_update(); /* lobby/handshake screens keep the select music running */
-}
-
-static void wait_key(C3D_RenderTarget *top)
-{
-	printf("\nPress A to return.\n");
-	while (aptMainLoop()) {
-		hidScanInput();
-		if (hidKeysDown() & (KEY_A | KEY_B | KEY_START))
-			break;
-		blank_top(top);
-	}
-}
 
 /* This frame's sounds, then the per-frame SE/BGM updates (main.c order). */
 static void play_ids(const uint8_t *ids, const uint8_t *cds, int n)
@@ -76,31 +61,8 @@ static bool compatible(uint8_t proto, uint16_t gamever, uint32_t fp)
 
 /* ---- the match ---- */
 
-static void status_line(const rb_session *s, int local, const char *conn)
-{
-	rb_stats st;
-	rb_get_stats(s, &st);
-	const rb_game *g = rb_state(s);
-	printf("\x1b[6;0H\x1b[0J");
-	printf("link: %-10s  you are P%d\n", conn, local + 1);
-	printf("ping %3d ms   adv %+5.1f f\n", st.ping_ms, (double)st.advantage);
-	printf("frame %ld  confirmed %ld\n", (long)st.frame, (long)st.confirmed);
-	printf("rollbacks %lu (last %d, max %d)\n", (unsigned long)st.rollbacks, st.last_depth, st.max_depth);
-	printf("resim %lu  waits %lu  skips %lu\n", (unsigned long)st.resim_frames, (unsigned long)st.wait_stalls,
-	       (unsigned long)st.sync_skips);
-	printf("pkts in %lu out %lu  send err %lu\n", (unsigned long)st.pkts_recv, (unsigned long)st.pkts_sent,
-	       (unsigned long)uds_link_send_errors());
-	printf("checksums %lu  ", (unsigned long)st.crc_checked);
-	if (st.desyncs)
-		printf("\x1b[31mDESYNC x%lu @%ld\x1b[0m\n", (unsigned long)st.desyncs, (long)st.desync_frame);
-	else
-		printf("\x1b[32min sync\x1b[0m\n");
-	printf("\nmatches  P1 %ld - %ld P2\n", (long)g->matchWins[0], (long)g->matchWins[1]);
-	if (g->lastMatchWinner >= 0)
-		printf("last match: P%ld wins\n", (long)g->lastMatchWinner + 1);
-}
-
-/* The same stats as status_line, compacted into the bottom-screen panel. */
+#ifdef AOS_PROFILE
+/* Session stats as bottom-panel debug lines (profile builds, shown while SELECT is held: panel.h). */
 static void panel_status(const rb_session *s, int local, const char *conn)
 {
 	rb_stats st;
@@ -123,8 +85,12 @@ static void panel_status(const rb_session *s, int local, const char *conn)
 	else
 		panel_line(5, grey, "matches P1 %ld - %ld P2", (long)g->matchWins[0], (long)g->matchWins[1]);
 }
+#else
+#define panel_status(s, local, conn) ((void)0)
+#endif
 
-static void net_match(C3D_RenderTarget *top, PrintConsole *con, bool host, const rb_start *st)
+/* Returns NULL when the local player left (START), else why the match ended (static text). */
+static const char *net_match(C3D_RenderTarget *top, PrintConsole *con, bool host, const rb_start *st)
 {
 	rb_config cfg;
 	rb_config_default(&cfg, host ? 0 : 1);
@@ -136,34 +102,29 @@ static void net_match(C3D_RenderTarget *top, PrintConsole *con, bool host, const
 		s = rb_create(&cfg, &st->match, now_ms());
 	}
 	if (!s) {
-		printf("\x1b[31mout of memory for rollback snapshots\x1b[0m\n");
 		send_quit();
-		wait_key(top);
-		return;
+		return "Out of memory for the rollback snapshots.";
 	}
 	const rb_game *g = rb_state(s);
-	consoleClear();
-	printf("\x1b[36m%s vs %s\x1b[0m  (local wireless)\n", render_char_name(st->match.ids[0]),
-	       render_char_name(st->match.ids[1]));
-	printf("delay %d f, rollback window %d f, %lu KB\n", cfg.input_delay, cfg.max_rollback,
-	       (unsigned long)(rb_memory_bytes(s) / 1024));
-	printf("START: leave\n");
-	if (!render_load_match(&g->w))
-		printf("\x1b[31mtexture load failed\x1b[0m\n");
+	(void)render_load_match(&g->w); /* a failed atlas only loses sprites; the session still runs */
 	/* both consoles play the host's pick (START.bgm), see docs/re/music.md §5 */
 	music_battle_start(st->bgm);
-	printf("BGM: %.34s\n", music_name(st->bgm));
 	/* both consoles draw the host's stage (START.stage, random already resolved) */
 	stage3ds_begin(st->stage);
 	audio_se_prepare(st->match.ids[0], st->match.ids[1], stage_current()); /* SE residency (audio.h) */
 	int32_t match_mark = g->matchEndFrame, stage_frame = g->w.frame;
-	panel_begin(con); /* bottom screen: match panel instead of the console */
+	panel_begin(con); /* bottom screen: the local player's touch hyper buttons (panel.h) */
+	panel_match_begin(&g->w, cfg.local_player);
+#ifdef AOS_PROFILE
 	panel_line(0, C2D_Color32(110, 220, 255, 255), "%s vs %s (wireless)  delay %d f  START: leave",
 	           render_char_name(st->match.ids[0]), render_char_name(st->match.ids[1]), cfg.input_delay);
+#endif
 	panel_status(s, cfg.local_player, "connected");
 
 	aos_input in;
 	aos_input_init(&in, NULL);
+	ht_state ht; /* touch hyper buttons -> the local mask, sent like any other input */
+	ht_init(&ht);
 	const char *why = NULL;
 	int ui = 0;
 	while (aptMainLoop()) {
@@ -176,7 +137,8 @@ static void net_match(C3D_RenderTarget *top, PrintConsole *con, bool host, const
 		circlePosition cp;
 		hidCircleRead(&cp);
 		aos_input_out o = aos_input_update(&in, aos_input_from_3ds(kh));
-		uint16_t mask = to_mask(&o, kh, &cp);
+		const aos_player *me = &g->w.p[cfg.local_player];
+		uint16_t mask = ht_apply(&ht, me->id, me->scheme, panel_touch(&g->w), to_mask(&o, kh, &cp));
 
 		int n;
 		while ((n = uds_link_recv(pkt, sizeof pkt)) > 0) {
@@ -189,20 +151,20 @@ static void net_match(C3D_RenderTarget *top, PrintConsole *con, bool host, const
 				if (rb_decode_start(pkt, (size_t)n, &again) && (k = rb_encode_start_ack(again.nonce, ack, sizeof ack)))
 					uds_link_send(ack, k); /* our earlier ACK was lost */
 			} else if (pkt[0] == RB_PKT_QUIT) {
-				why = "opponent left the match";
+				why = "The other player left the match.";
 			}
 		}
 		if (n < 0)
 			why = uds_link_error();
 		uds_link_state ls = uds_link_poll();
 		if (ls == UDS_LINK_LOST)
-			why = "connection lost";
+			why = "The connection was lost.";
 		if (why)
 			break;
 
 		rb_status r = rb_advance(s, mask, now_ms());
 		if (r == RB_DISCONNECTED) {
-			why = "no data from opponent (timeout)";
+			why = "No data from the other player (timeout).";
 			break;
 		}
 		size_t len = rb_build_packet(s, pkt, sizeof pkt, now_ms());
@@ -229,145 +191,338 @@ static void net_match(C3D_RenderTarget *top, PrintConsole *con, bool host, const
 		panel_draw(&g->w);
 		C3D_FrameEnd(0);
 	}
+	panel_match_end();
 	panel_end(con);
 	stage3ds_end();
 	render_unload_match();
 	music_battle_exit();
-	if (why) {
-		status_line(s, cfg.local_player, "closed");
-		printf("\n\x1b[33m%s\x1b[0m\n", why);
-		rb_destroy(s);
-		wait_key(top);
-	} else {
-		rb_destroy(s);
+	rb_destroy(s);
+	return why;
+}
+
+/* ---- lobby (non-blocking, netplay.h netl_*) ---- */
+
+static struct {
+	netl_state st;
+	bool host;
+	rb_hello me;
+	rb_start start;
+	bool have_start;
+	int delay, stage, bgm;
+	int peer;          /* opponent's engine id once known, -1 before */
+	int peer_color;
+	int t;             /* frames since netl_begin */
+	bool mismatch;     /* client: saw a host running another build */
+	char err[128];
+	/* client: beacon scan on a worker thread (uds_link_join blocks ~0.5-1 s) */
+	Thread scan;
+	volatile bool scan_busy, scan_ok, scan_mm;
+#ifdef AOS_PROFILE
+	int stub; /* sdmc:/aos2_netstub.txt: fake peer for UI tests (no UDS), 0 off, 1 ok, 2 wireless off, 3 drop */
+	int stub_id, stub_color;
+#endif
+} L;
+
+static void fail(const char *msg)
+{
+	snprintf(L.err, sizeof L.err, "%s", msg);
+	L.st = NETL_FAILED;
+}
+
+static void scan_fn(void *arg)
+{
+	(void)arg;
+	bool mm = false;
+	L.scan_ok = uds_link_join(rb_sim_fingerprint(), &mm);
+	L.scan_mm = mm;
+	L.scan_busy = false;
+}
+
+static void scan_wait(void)
+{
+	if (!L.scan)
+		return;
+	threadJoin(L.scan, U64_MAX);
+	threadFree(L.scan);
+	L.scan = NULL;
+}
+
+static void scan_start(void)
+{
+	scan_wait();
+	L.scan_busy = true;
+	s32 prio = 0x30;
+	svcGetThreadPriority(&prio, CUR_THREAD_HANDLE);
+	/* lower priority than the game loop, same core: the scan mostly waits on the wireless service */
+	L.scan = threadCreate(scan_fn, NULL, 0x4000, prio + 1 > 0x3f ? 0x3f : prio + 1, -2, false);
+	if (!L.scan)
+		scan_fn(NULL); /* no thread: scan inline (the frame stalls once) */
+}
+
+#ifdef AOS_PROFILE
+static void stub_load(void)
+{
+	L.stub = 0;
+	FILE *f = fopen("sdmc:/aos2_netstub.txt", "r");
+	if (!f)
+		return;
+	int mode = 1, id = 3, col = 0;
+	if (fscanf(f, "%d %d %d", &mode, &id, &col) >= 1)
+		L.stub = mode, L.stub_id = id, L.stub_color = col;
+	fclose(f);
+}
+#endif
+
+bool netl_begin(bool host, int id, int color, int scheme, int delay, int stage, int bgm)
+{
+	netl_cancel();
+	memset(&L.me, 0, sizeof L.me);
+	memset(&L.start, 0, sizeof L.start);
+	L.host = host;
+	L.have_start = false;
+	L.delay = delay;
+	L.stage = stage;
+	L.bgm = bgm;
+	L.peer = -1;
+	L.peer_color = 0;
+	L.t = 0;
+	L.mismatch = false;
+	L.err[0] = 0;
+	L.me.proto = RB_PROTO_VERSION;
+	L.me.game_version = AOS_GAME_VERSION;
+	L.me.fingerprint = rb_sim_fingerprint();
+	L.me.id = id;
+	L.me.color = color;
+	L.me.scheme = scheme;
+	L.st = host ? NETL_HOSTING : NETL_SEARCHING;
+#ifdef AOS_PROFILE
+	stub_load();
+	if (L.stub == 2) {
+		fail("Wireless communication is off.");
+		return false;
+	}
+	if (L.stub)
+		return true;
+#endif
+	if (!uds_link_init()) {
+		fail("Wireless communication is off (or not available).");
+		return false;
+	}
+	if (host) {
+		if (!uds_link_host(L.me.fingerprint)) {
+			char e[96];
+			snprintf(e, sizeof e, "Could not create the network: %s", uds_link_error());
+			fail(e);
+			return false;
+		}
+		L.start.nonce = (uint32_t)svcGetSystemTick() ^ now_ms();
+	}
+	return true;
+}
+
+/* Host: the client's HELLO -> START (settings of both consoles). */
+static void host_hello(const rb_hello *h)
+{
+	if (!compatible(h->proto, h->game_version, h->fingerprint)) {
+		send_quit();
+		fail("The other console runs a different build.");
+		return;
+	}
+	rb_start *st = &L.start;
+	st->proto = RB_PROTO_VERSION;
+	st->game_version = AOS_GAME_VERSION;
+	st->fingerprint = L.me.fingerprint;
+	rb_match_from_picks(&st->match, &L.me, h, 180, 2);
+	st->input_delay = (uint8_t)L.delay;
+	st->max_rollback = RB_MAX_ROLLBACK;
+	st->bgm = (uint8_t)L.bgm;
+	st->stage = (uint8_t)L.stage;
+	L.have_start = true;
+	L.peer = h->id;
+	L.peer_color = st->match.colors[1];
+}
+
+static bool client_start(void)
+{
+	rb_start *st = &L.start;
+	if (!compatible(st->proto, st->game_version, st->fingerprint) || st->input_delay > RB_MAX_DELAY ||
+	    st->match.ids[0] < 3 || st->match.ids[0] >= AOS_NUM_CHARS || st->match.ids[1] < 3 ||
+	    st->match.ids[1] >= AOS_NUM_CHARS) {
+		send_quit();
+		fail("The host runs a different build.");
+		return false;
+	}
+	uint8_t ack[8];
+	size_t k = rb_encode_start_ack(st->nonce, ack, sizeof ack);
+	uds_link_send(ack, k);
+	L.peer = st->match.ids[0];
+	L.peer_color = st->match.colors[0];
+	return true;
+}
+
+#ifdef AOS_PROFILE
+static netl_state stub_poll(void)
+{
+	if (L.st == NETL_READY || L.st == NETL_FAILED)
+		return L.st;
+	if (L.t > 90 && L.st != NETL_CONNECTED)
+		L.st = NETL_CONNECTED;
+	if (L.t > 150) {
+		rb_hello h = L.me;
+		h.id = L.stub_id;
+		h.color = L.stub_color;
+		if (L.host) {
+			host_hello(&h);
+		} else {
+			rb_hello me = L.me;
+			rb_match_from_picks(&L.start.match, &h, &me, 180, 2);
+			L.start.stage = (uint8_t)(L.stage > 1 ? L.stage : 15);
+			L.start.bgm = (uint8_t)L.bgm;
+			L.peer = h.id;
+			L.peer_color = L.start.match.colors[0];
+		}
+		L.st = NETL_READY;
+	}
+	return L.st;
+}
+#endif
+
+netl_state netl_poll(void)
+{
+	L.t++;
+#ifdef AOS_PROFILE
+	if (L.stub)
+		return stub_poll();
+#endif
+	if (L.st == NETL_OFF || L.st == NETL_FAILED || L.st == NETL_READY)
+		return L.st;
+	if (!L.host && L.st == NETL_SEARCHING) {
+		if (L.scan_busy)
+			return L.st;
+		if (L.scan) { /* a scan finished */
+			scan_wait();
+			if (L.scan_mm)
+				L.mismatch = true;
+			if (L.scan_ok)
+				L.st = NETL_CONNECTED;
+		}
+		if (L.st == NETL_SEARCHING) {
+			if (L.t >= 2) /* the first frames draw "searching" before the first scan */
+				scan_start();
+			return L.st;
+		}
+	}
+	uds_link_state ls = uds_link_poll();
+	if (ls == UDS_LINK_LOST) {
+		fail(L.host ? "The other player left." : "The connection to the host was lost.");
+		return L.st;
+	}
+	if (L.host && ls == UDS_LINK_CONNECTED && L.st == NETL_HOSTING)
+		L.st = NETL_CONNECTED;
+	if (ls != UDS_LINK_CONNECTED)
+		return L.st;
+	int n = 0;
+	while (L.st != NETL_FAILED && L.st != NETL_READY && (n = uds_link_recv(pkt, sizeof pkt)) > 0) {
+		if (pkt[0] == RB_PKT_QUIT) {
+			fail(L.host ? "The other player left." : "The host refused or left.");
+			break;
+		}
+		if (L.host) {
+			rb_hello h;
+			uint32_t nonce;
+			if (!L.have_start && rb_decode_hello(pkt, (size_t)n, &h))
+				host_hello(&h);
+			else if (L.have_start && ((rb_decode_start_ack(pkt, (size_t)n, &nonce) && nonce == L.start.nonce) ||
+			                          pkt[0] == RB_PKT_INPUT))
+				L.st = NETL_READY;
+		} else if (rb_decode_start(pkt, (size_t)n, &L.start)) {
+			if (client_start())
+				L.st = NETL_READY;
+		}
+	}
+	if (n < 0 && L.st != NETL_FAILED && L.st != NETL_READY) {
+		char e[110];
+		snprintf(e, sizeof e, "Wireless error: %s", uds_link_error());
+		fail(e);
+	}
+	/* resend our side of the handshake */
+	if (L.st == NETL_CONNECTED && L.t % 4 == 0) {
+		size_t k = L.host ? (L.have_start ? rb_encode_start(&L.start, pkt, sizeof pkt) : 0)
+		                  : rb_encode_hello(&L.me, pkt, sizeof pkt);
+		if (k)
+			uds_link_send(pkt, k);
+	}
+	return L.st;
+}
+
+void netl_hold(void)
+{
+#ifdef AOS_PROFILE
+	if (L.stub)
+		return;
+#endif
+	if (L.st != NETL_READY)
+		return;
+	if (uds_link_poll() == UDS_LINK_LOST) {
+		fail("The connection was lost.");
+		return;
+	}
+	int n;
+	while ((n = uds_link_recv(pkt, sizeof pkt)) > 0) {
+		rb_start again;
+		uint8_t ack[8];
+		size_t k;
+		if (pkt[0] == RB_PKT_QUIT) {
+			fail("The other player left.");
+			return;
+		}
+		if (!L.host && rb_decode_start(pkt, (size_t)n, &again) &&
+		    (k = rb_encode_start_ack(again.nonce, ack, sizeof ack)))
+			uds_link_send(ack, k); /* our ACK was lost: the host repeats START */
 	}
 }
 
-/* ---- lobby ---- */
-
-void netplay_run(C3D_RenderTarget *top, PrintConsole *con, bool host, int my_id, int delay, int stage)
+void netl_cancel(void)
 {
-	consoleSelect(con);
-	consoleClear();
-	printf("\x1b[36mLocal wireless - %s\x1b[0m\n", host ? "host (P1)" : "join (P2)");
-	printf("You: %s   B: cancel\n\n", render_char_name(my_id));
-	if (!uds_link_init()) {
-		printf("\x1b[31m%s\x1b[0m\n", uds_link_error());
-		wait_key(top);
+	scan_wait();
+#ifdef AOS_PROFILE
+	if (L.stub) {
+		L.st = NETL_OFF;
 		return;
 	}
-	const uint32_t fp = rb_sim_fingerprint();
-	rb_hello me;
-	memset(&me, 0, sizeof me);
-	me.proto = RB_PROTO_VERSION;
-	me.game_version = AOS_GAME_VERSION;
-	me.fingerprint = fp;
-	me.id = my_id;
-	me.color = 0;
-	me.scheme = 0;
+#endif
+	if (L.st == NETL_CONNECTED || L.st == NETL_READY)
+		send_quit();
+	if (L.st != NETL_OFF)
+		uds_link_close();
+	L.st = NETL_OFF;
+}
 
-	rb_start st;
-	memset(&st, 0, sizeof st);
-	bool have_start = false, started = false;
-	const char *fail = NULL;
-	if (host) {
-		if (!uds_link_host(fp))
-			fail = uds_link_error();
-		else
-			printf("Waiting for a player to join...\n");
-		st.nonce = (uint32_t)svcGetSystemTick() ^ now_ms();
-	} else {
-		printf("Searching for a host...\n");
+netl_state netl_get(void) { return L.st; }
+bool netl_mismatch(void) { return L.mismatch; }
+const char *netl_error(void) { return L.err; }
+int netl_peer(void) { return L.peer; }
+int netl_peer_color(void) { return L.peer_color; }
+const rb_start *netl_start(void) { return &L.start; }
+
+const char *netplay_match(C3D_RenderTarget *top, PrintConsole *con)
+{
+	static char why[128];
+	const char *r;
+#ifdef AOS_PROFILE
+	if (L.stub) {
+		L.st = NETL_OFF;
+		if (L.stub == 3)
+			return "The connection was lost. (test stub)";
+		return NULL;
 	}
-
-	int t = 0;
-	while (!fail && !started && aptMainLoop()) {
-		hidScanInput();
-		if (hidKeysDown() & KEY_B) {
-			if (have_start || uds_link_poll() == UDS_LINK_CONNECTED)
-				send_quit();
-			break;
-		}
-		t++;
-		uds_link_state ls = uds_link_poll();
-		if (!host && ls != UDS_LINK_CONNECTED && t % 30 == 1) {
-			bool mismatch = false;
-			if (uds_link_join(fp, &mismatch))
-				printf("Connected, handshaking...\n");
-			else if (mismatch)
-				printf("\x1b[33mFound a host with a different build\x1b[0m\n");
-			ls = uds_link_poll();
-		}
-		if (ls == UDS_LINK_LOST) {
-			fail = "connection lost";
-			break;
-		}
-
-		int n;
-		while ((n = uds_link_recv(pkt, sizeof pkt)) > 0) {
-			if (host) {
-				rb_hello h;
-				uint32_t nonce;
-				if (rb_decode_hello(pkt, (size_t)n, &h) && !have_start) {
-					if (!compatible(h.proto, h.game_version, h.fingerprint)) {
-						send_quit();
-						fail = "the other console runs a different build";
-						break;
-					}
-					st.proto = RB_PROTO_VERSION;
-					st.game_version = AOS_GAME_VERSION;
-					st.fingerprint = fp;
-					rb_match_from_picks(&st.match, &me, &h, 180, 2);
-					st.input_delay = (uint8_t)delay;
-					st.max_rollback = RB_MAX_ROLLBACK;
-					st.bgm = (uint8_t)music_resolve(); /* host's BGM select, "????" rolled here */
-					/* host's stage select; "Random" rolled here like FUN_007aaf90 */
-					st.stage = (uint8_t)(stage == STAGE_RANDOM ? stage_random() : stage);
-					have_start = true;
-					printf("Opponent: %s - starting\n", render_char_name(h.id));
-				} else if (have_start && ((rb_decode_start_ack(pkt, (size_t)n, &nonce) && nonce == st.nonce) ||
-				                          pkt[0] == RB_PKT_INPUT)) {
-					started = true;
-				}
-			} else {
-				if (rb_decode_start(pkt, (size_t)n, &st)) {
-					if (!compatible(st.proto, st.game_version, st.fingerprint) || st.input_delay > RB_MAX_DELAY ||
-					    st.match.ids[0] < 3 || st.match.ids[0] >= AOS_NUM_CHARS || st.match.ids[1] < 3 ||
-					    st.match.ids[1] >= AOS_NUM_CHARS) {
-						send_quit();
-						fail = "the host runs a different build";
-						break;
-					}
-					uint8_t ack[8];
-					size_t k = rb_encode_start_ack(st.nonce, ack, sizeof ack);
-					uds_link_send(ack, k);
-					have_start = started = true;
-				}
-			}
-			if (pkt[0] == RB_PKT_QUIT) {
-				fail = host ? "the player left" : "the host refused or left";
-				break;
-			}
-		}
-		if (n < 0 && !fail)
-			fail = uds_link_error();
-		if (started || fail)
-			break;
-
-		/* resend our side of the handshake */
-		if (ls == UDS_LINK_CONNECTED && t % 4 == 0) {
-			size_t k = host ? (have_start ? rb_encode_start(&st, pkt, sizeof pkt) : 0)
-			                : rb_encode_hello(&me, pkt, sizeof pkt);
-			if (k)
-				uds_link_send(pkt, k);
-		}
-		blank_top(top);
-	}
-	if (started)
-		net_match(top, con, host, &st);
-	else if (fail) {
-		printf("\n\x1b[31m%s\x1b[0m\n", fail);
-		wait_key(top);
+#endif
+	r = L.st == NETL_READY ? net_match(top, con, L.host, &L.start) : "The connection was lost.";
+	if (r) {
+		snprintf(why, sizeof why, "%s", r); /* uds_link_error() is cleared by the close */
+		r = why;
 	}
 	uds_link_close();
+	L.st = NETL_OFF;
+	return r;
 }

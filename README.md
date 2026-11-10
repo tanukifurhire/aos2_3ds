@@ -63,7 +63,7 @@ src/platform/ renderer (sprite batcher, sprite bank, HUD, bottom panel), BGM str
 src/app/      scenes: logo/title/menus, select, battle, result, conversation, staff roll, ranking, netplay lobby
 src/modes/    arcade/story ladders, scoring/ranking/unlocks, save file, story conversation logic
 src/net/      rollback netplay and 3DS local wireless (UDS) transport
-src/input/    button mapping (L Dash, R Hyper, A/B weapons, X/Y specials, L+R Shield, L,L Hyper Dash)
+src/input/    button mapping (L Dash, R Shield (L+R too), A/B weapons, X/Y specials, L,L Hyper Dash; hypers = touch buttons)
 tools/        aos2extract (unpack/decrypt game data), aos2pack (atlases, fonts, menu art), aos2mesh
               (stage meshes), aos2story (story data), dkpfetch (portable devkitPro fetcher), re/ (RE helpers),
               setup.sh (fresh-clone toolchain setup)

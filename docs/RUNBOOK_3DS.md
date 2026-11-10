@@ -65,9 +65,10 @@ Tick each item; note anything off (and the frame/situation) for §6.
 - [ ] Hold SELECT in a menu: debug readout shows frame time and free memory (write down the "lin …K" number = free linear memory).
 - [ ] Config: change BGM/SE volume, back out, reboot the game → setting kept.
 
-**Controls in a match** (your mapping): L dash, R hyper, A weapon A, B weapon B, X special A,
-Y special B, L+R together = shield, L tapped twice quickly = hyper dash. Config → Controls opens the
-input lab to check each one.
+**Controls in a match** (your mapping): L dash, R shield (L+R together too), A weapon A, B weapon B,
+X special A, Y special B, L tapped twice quickly = hyper dash; hypers = the touch buttons on the bottom
+screen (Accel Hyper in the centre; a button is dimmed while the gauge can't pay for it). Config → Controls
+opens the input lab to check each one.
 
 **Versus CPU (Match)**
 - [ ] VS select: characters, handicap, colour, input mode, stage, BGM → white fade, "NOW LOADING", fight.

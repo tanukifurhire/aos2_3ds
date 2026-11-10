@@ -6,8 +6,8 @@
  * speeds and timings here are PLACEHOLDERS, not the original game's values;
  * the real mechanics are still compiled inside aos2.exe (see docs/STATUS.md).
  *
- * Controls: Circle Pad / D-Pad move, L Dash, R Hyper, A/B Weapon A/B,
- * X/Y Special A/B, L+R Shield, L,L Hyper Dash.
+ * Controls: Circle Pad / D-Pad move, L Dash, R Shield (L+R too), A/B Weapon A/B,
+ * X/Y Special A/B, L,L Hyper Dash, touch screen = Hyper.
  * SELECT + Up/Down: chord window, SELECT + Left/Right: double-tap window.
  * START: exit.
  */
@@ -81,7 +81,7 @@ static const aos_frame *anim_frame(const player *p)
 static void log_events(u32 frame, u32 ev)
 {
 	static const char *const names[] = {
-		"DASH", "HYPER DASH", "HYPER", "SHIELD",
+		"DASH", "HYPER DASH", "-", "SHIELD",
 		"WEAPON A", "WEAPON B", "SPECIAL A", "SPECIAL B",
 	};
 	for (int i = 0; i < 8; i++)
@@ -158,7 +158,7 @@ int lab_run(C3D_RenderTarget *top, const char *aerr)
 			audio_play(SFX_HYPER_DASH);
 			p.hyper_dash_t = HYPER_DASH_FRAMES;
 		}
-		if (o.events & AOS_EV_HYPER) {
+		if (hidKeysDown() & KEY_TOUCH) { /* hypers are touch buttons in matches (hyper_touch.h) */
 			audio_play(SFX_HYPER);
 			p.hyper_flash_t = HYPER_FLASH_FRAMES;
 		}

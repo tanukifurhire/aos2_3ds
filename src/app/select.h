@@ -138,6 +138,7 @@ typedef struct {
 	int count;               /* 94370 resume countdown 91..0 */
 	int exiting;             /* PAUSE_RETRY / PAUSE_QUIT chosen (DAT_00885970) */
 	bool fading;             /* waiting for the fade to black */
+	int scroll, scroll_max;  /* port: command-list rows scrolled (Up/Down); max set by the bottom-screen draw */
 } pause_state;
 extern pause_state g_pause;
 void pause_reset(void);

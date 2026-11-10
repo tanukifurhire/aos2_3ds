@@ -65,4 +65,25 @@ void sel_draw_loading(void);
 /* Tile wipe (select.h sel_wipe) drawn like FUN_005622a0 types 0x11-0x14. */
 void sel_wipe_draw(const sel_wipe *w);
 
+/* VS Select pieces reused by the local-wireless select (netsel.c), defined in select_draw.c.
+ * The player pieces draw from g_vs (portrait / wheel / standing art of player p, stage cards). */
+void selx_textures(void);   /* load the VS Select's textures */
+void selx_free(void);       /* free them + the select's 3D stage */
+void selx_backdrop(void);   /* sl_bgp + the 3D stage */
+void selx_frame(void);      /* letterbox + title */
+void selx_stage_select(void); /* stage cards + stage name + BGM band (g_vs.ca0) */
+void selx_portrait(int p);
+void selx_wheel(int p);
+void selx_standing(int p);
+void selx_std(int p, int chara, int colopt); /* standing art of p (reloads on change) */
+void selx_bottom_bg(void);
+void selx_pill(float y, unsigned strip, const char *label, float a, float w);
+void selx_stats(int id, float x, float y, float a);
+void selx_icon(int id, float cx, float cy, float half, unsigned argb);
+void selx_noise(int frame, float cx, float cy, unsigned argb);
+void selx_name_plate(int id, float cx, float cy, float hw, float hh, unsigned argb);
+void selx_ring(bool p2, float cx, float cy, float a, int ring);
+void selx_stage_name(int id, float cx, float cy, float k, unsigned argb);
+void selx_arrows(float xl, float xr, float y, unsigned argb);
+
 #endif

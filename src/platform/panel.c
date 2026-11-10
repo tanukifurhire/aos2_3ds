@@ -1,23 +1,31 @@
 #include "panel.h"
 
+#include <math.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
 
-#include "hud.h"
+#include "../app/prof.h"
+#include "../app/selgfx.h"
+#include "../app/text.h"
+#include "../app/ui.h"
+#include "../input/hyper_touch.h"
 #include "sprbatch.h"
 
 #define BW 320
 #define BH 240
+
+static bool cache_init(void);
+static void cache_free(void);
 
 static C3D_RenderTarget *bottom;
 static C2D_TextBuf tbuf;
 static C2D_Text txt[PANEL_LINES];
 static char line[PANEL_LINES][64];
 static u32 lcol[PANEL_LINES];
-static bool dirty;
+static bool dirty;  /* a debug line changed */
 static bool pvalid; /* the cached panel image is current (panel_draw) */
-/* What the last panel_draw showed: status lines + the counters' primitive hash. */
+/* What the last panel_draw showed (cache key + gauge fill). */
 static uint32_t drawn_hash;
 static bool drawn_ok;
 
@@ -73,29 +81,387 @@ void panel_line(int i, u32 color, const char *fmt, ...)
 	}
 }
 
-/* The panel's static layer (background, separators, status lines in the system font) changes only when a status
- * line does: it is rendered into an off-screen texture then and drawn as one quad every frame; the heat/combo
- * counters (hud_c2d_panel, a few dozen batched quads) are drawn on top every frame. The full citro2d draw cost
- * ~0.8 ms CPU per frame, mostly the text. */
+/* debug lines: profile builds, SELECT held */
+static bool lines_shown(void)
+{
+#ifdef AOS_PROFILE
+	return ((hidKeysHeld() | prof_script_keys()) & KEY_SELECT) != 0;
+#else
+	return false;
+#endif
+}
+
+/* ================================================================ layout and art */
+
+typedef struct {
+	float x0, y0, x1, y1, cut;
+	unsigned col; /* 0xRRGGBB */
+} slot_box;
+
+/* A cross like the 3DS Pokemon battle menus: S+H top, H left, B+H right, D+H bottom, Accel Hyper centre. */
+static const slot_box box[HT_NSLOT] = {
+	[HT_UP] = {54, 4, 266, 52, 12, 0x9a4cf0},      /* violet */
+	[HT_LEFT] = {4, 58, 101, 166, 12, 0x2b74f0},   /* blue */
+	[HT_RIGHT] = {219, 58, 316, 166, 12, 0x1fa84a}, /* green */
+	[HT_DOWN] = {54, 172, 266, 220, 12, 0xf08a1c}, /* orange */
+	[HT_CENTER] = {106, 58, 214, 166, 18, 0xe0243c}, /* red, gold rim */
+};
+#define GAUGE_X0 66.0f
+#define GAUGE_X1 314.0f
+#define GAUGE_Y0 226.0f
+#define GAUGE_Y1 236.0f
+
+void panel_slot_rect(int slot, float *x0, float *y0, float *x1, float *y1)
+{
+	const slot_box *b = &box[slot < 0 || slot >= HT_NSLOT ? HT_CENTER : slot];
+	*x0 = b->x0;
+	*y0 = b->y0;
+	*x1 = b->x1;
+	*y1 = b->y1;
+}
+
+unsigned panel_slot_color(int slot) { return box[slot < 0 || slot >= HT_NSLOT ? HT_CENTER : slot].col; }
+
+static int pl_local, pl_chara = -1;
+static bool pl_on;
+static bgfx pl_art;
+static kv_table *pl_names, *pl_cats;
+
+/* label layout per slot, fitted once per match */
+typedef struct {
+	char text[160], alt[64];
+	font_id font;
+	float scale, lh;
+	int lines;
+} slot_label;
+static slot_label lab[HT_NSLOT];
+
+static unsigned mixc(unsigned a, unsigned b, float t)
+{
+	unsigned r = 0;
+	for (int s = 0; s < 24; s += 8) {
+		float x = (float)((a >> s) & 0xff) * (1 - t) + (float)((b >> s) & 0xff) * t;
+		r |= (unsigned)(x + 0.5f) << s;
+	}
+	return r;
+}
+static unsigned argb(float a, unsigned rgb) { return ui_argb((int)(255 * a + 0.5f), rgb); }
+
+static const char *move_name(const char *key)
+{
+	static char buf[2][96]; /* first line only: a file's last value is followed by "[EOF]" */
+	static int n;
+	const char *v = key && pl_names ? kv_get(pl_names, key) : NULL;
+	char *b = buf[n++ & 1];
+	snprintf(b, sizeof buf[0], "%s", v ? v : "");
+	b[strcspn(b, "\n")] = 0;
+	return b;
+}
+
+/* Wrap s into the box with the biggest of a few font sizes that fits (lines and width). */
+static void fit_label(slot_label *l, const char *s, float w, float h)
+{
+	static const struct {
+		font_id f;
+		float sc;
+	} tries[] = {{FONT_MENUBIG, 1.0f}, {FONT_MENUBIG, 0.9f}, {FONT_MENU, 0.9f}, {FONT_MENU, 0.8f},
+	             {FONT_MENU, 0.72f}, {FONT_MENU, 0.64f}, {FONT_MENU, 0.58f}};
+	for (unsigned i = 0; i < sizeof tries / sizeof tries[0]; i++) {
+		l->font = tries[i].f;
+		l->scale = tries[i].sc;
+		l->lines = text_wrap(l->font, s, l->scale, w, l->text, sizeof l->text);
+		l->lh = text_line_height(l->font, l->scale) * 0.88f;
+		if (l->lh * (float)l->lines <= h && text_width(l->font, l->text, l->scale) <= w)
+			return;
+	}
+}
+
+/* the area a slot's name may use (gems, the Accel tag and the alt line take the rest) */
+static void label_area(int k, float *x0, float *y0, float *x1, float *y1)
+{
+	const slot_box *b = &box[k];
+	*x0 = b->x0 + 8;
+	*x1 = b->x1 - 8;
+	*y0 = b->y0 + 5;
+	*y1 = b->y1 - 5;
+	if (b->y1 - b->y0 > 70) { /* tall: gems under the name */
+		*y1 -= 12;
+		if (k == HT_CENTER)
+			*y0 += 14; /* "Accel Hyper" tag */
+	} else {
+		*x1 -= 30; /* flat: gems on the right */
+	}
+	if (lab[k].alt[0])
+		*y1 -= 11;
+}
+
+void panel_match_begin(const aos_world *w, int local)
+{
+	pl_local = local & 1;
+	pl_chara = w->p[pl_local].id;
+	char folder[32], name[64], path[96];
+	sel_palette_folder(folder, sizeof folder, pl_chara, w->p[pl_local].color);
+	snprintf(name, sizeof name, "reschr_%s", folder);
+	bgfx_load(&pl_art, name, 0, 0, 0.25f); /* 2048² full-body art at 1/4 (seltex.go), 256 KB */
+	snprintf(path, sizeof path, "romfs:/script/%s/commandlist_names.txt", lang_dir(strings_language()));
+	pl_names = kv_load(path);
+	snprintf(path, sizeof path, "romfs:/script/%s/commandlist_categories.txt", lang_dir(strings_language()));
+	pl_cats = kv_load(path);
+	text_width(FONT_SYSTEM, "0", 1.0f); /* load the fonts now, not in the first match frame */
+	memset(lab, 0, sizeof lab);
+	for (int k = 0; k < HT_NSLOT; k++) {
+		const ht_move *m = ht_slot(pl_chara, k);
+		if (!m->key)
+			continue;
+		if (m->alt)
+			snprintf(lab[k].alt, sizeof lab[k].alt, "/ %s", move_name(m->alt));
+		float x0, y0, x1, y1;
+		label_area(k, &x0, &y0, &x1, &y1);
+		fit_label(&lab[k], move_name(m->key), x1 - x0, y1 - y0);
+	}
+	cache_free();
+	cache_init();
+	pl_on = true;
+	panel_touch_reset();
+	pvalid = false;
+	drawn_ok = false;
+}
+
+void panel_match_end(void)
+{
+	pl_on = false;
+	pl_chara = -1;
+	bgfx_free(&pl_art);
+	kv_free(pl_names);
+	kv_free(pl_cats);
+	pl_names = pl_cats = NULL;
+	cache_free();
+	pvalid = false;
+	drawn_ok = false;
+}
+
+/* ================================================================ touch */
+
+static int8_t touch_slot = -1;
+static bool touch_down;
+
+void panel_touch_reset(void)
+{
+	touch_slot = -1;
+	touch_down = true; /* a finger already on the screen must lift first */
+}
+
+static int hit(int x, int y)
+{
+	for (int k = 0; k < HT_NSLOT; k++) {
+		const slot_box *b = &box[k];
+		if (x >= b->x0 && x < b->x1 && y >= b->y0 && y < b->y1)
+			return k;
+	}
+	return -1;
+}
+
+int panel_touch(const aos_world *w)
+{
+	int x = 0, y = 0;
+	bool down = false;
+	if (hidKeysHeld() & KEY_TOUCH) {
+		touchPosition tp;
+		hidTouchRead(&tp);
+		x = tp.px;
+		y = tp.py;
+		down = true;
+	}
+	if (prof_script_touch(&x, &y))
+		down = true;
+	if (!down) {
+		touch_down = false;
+		touch_slot = -1;
+		return -1;
+	}
+	if (!touch_down) { /* touch-down frame: latch the button if its hyper can start */
+		touch_down = true;
+		int k = pl_on ? hit(x, y) : -1;
+		touch_slot = (int8_t)(k >= 0 && ht_ready(w, pl_local, k) ? k : -1);
+	}
+	return touch_slot;
+}
+
+/* ================================================================ drawing helpers */
+
+void panel_chamfer(float x0, float y0, float x1, float y1, float c, unsigned top, unsigned bottom)
+{
+	const float px[8] = {x0 + c, x1 - c, x1, x1, x1 - c, x0 + c, x0, x0};
+	const float py[8] = {y0, y0, y0 + c, y1 - c, y1, y1, y1 - c, y0 + c};
+	u32 col[8];
+	for (int i = 0; i < 8; i++) {
+		float t = (py[i] - y0) / (y1 - y0);
+		unsigned a = (unsigned)((float)(top >> 24) * (1 - t) + (float)(bottom >> 24) * t + 0.5f);
+		col[i] = ui_c2d(a << 24 | mixc(top, bottom, t));
+	}
+	float cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
+	unsigned ca = ((top >> 24) + (bottom >> 24)) / 2;
+	u32 cc = ui_c2d(ca << 24 | mixc(top, bottom, 0.5f));
+	for (int i = 0; i < 8; i++) {
+		int j = (i + 1) & 7;
+		C2D_DrawTriangle(cx, cy, cc, px[i], py[i], col[i], px[j], py[j], col[j], UI_DEPTH);
+	}
+}
+
+/* top half gloss: chamfer cut on the top corners only */
+static void gloss(float x0, float y0, float x1, float y1, float c, float a)
+{
+	u32 t = ui_c2d(argb(a, 0xffffff)), b = ui_c2d(argb(a * 0.15f, 0xffffff));
+	C2D_DrawTriangle(x0 + c, y0, t, x1 - c, y0, t, x1, y0 + c, t, UI_DEPTH);
+	C2D_DrawTriangle(x0 + c, y0, t, x0, y0 + c, t, x1, y0 + c, t, UI_DEPTH);
+	C2D_DrawRectangle(x0, y0 + c, UI_DEPTH, x1 - x0, y1 - y0 - c, t, t, b, b);
+}
+
+static void gem(float cx, float cy, float r, bool lit)
+{
+	u32 rim = ui_c2d(lit ? 0xfffff2b0 : 0xff2a2a3a), in = ui_c2d(lit ? 0xffffc21a : 0xff4a4a5e),
+	    hi = ui_c2d(lit ? 0xffffffff : 0xff6a6a80);
+	C2D_DrawTriangle(cx, cy - r - 1.5f, rim, cx + r + 1.5f, cy, rim, cx, cy + r + 1.5f, rim, UI_DEPTH);
+	C2D_DrawTriangle(cx, cy - r - 1.5f, rim, cx - r - 1.5f, cy, rim, cx, cy + r + 1.5f, rim, UI_DEPTH);
+	C2D_DrawTriangle(cx, cy - r, hi, cx + r, cy, in, cx, cy + r, in, UI_DEPTH);
+	C2D_DrawTriangle(cx, cy - r, hi, cx - r, cy, in, cx, cy + r, in, UI_DEPTH);
+}
+
+enum { S_EMPTY, S_READY, S_POOR, S_LOCKED };
+
+static int slot_state(const aos_world *w, int k)
+{
+	const aos_player *p = &w->p[pl_local];
+	const ht_move *m = ht_slot(p->id, k);
+	if (!m->key)
+		return S_EMPTY;
+	if (p->hyper < m->cost)
+		return S_POOR;
+	return ht_ready(w, pl_local, k) ? S_READY : S_LOCKED;
+}
+
+static void text_shadowed(font_id f, const char *s, float x, float y, int align, unsigned rgb, float a, float sc,
+                          float maxw)
+{
+	text_draw(f, s, x + 1, y + 1.5f, align, ui_c2d(argb(a * 0.7f, 0x000000)), sc, maxw);
+	text_draw(f, s, x, y, align, ui_c2d(argb(a, rgb)), sc, maxw);
+}
+
+static void draw_button(int k, int state, bool pressed)
+{
+	const slot_box *b = &box[k];
+	float x0 = b->x0, y0 = b->y0, x1 = b->x1, y1 = b->y1, c = b->cut;
+	if (state == S_EMPTY) { /* socket: no such hyper for this character */
+		panel_chamfer(x0, y0, x1, y1, c, 0x90202838, 0x90101420);
+		panel_chamfer(x0 + 2, y0 + 2, x1 - 2, y1 - 2, c - 1, 0xa00c1020, 0xa0080a14);
+		text_draw(FONT_MENUBIG, "-", (x0 + x1) / 2, (y0 + y1) / 2, TEXT_CENTER, ui_c2d(0x60ffffff), 1.0f, 0);
+		return;
+	}
+	bool live = state == S_READY;
+	unsigned base = b->col;
+	if (state == S_POOR)
+		base = mixc(base, 0x50566a, 0.72f); /* greyed: the gauge does not pay for it */
+	else if (state == S_LOCKED)
+		base = mixc(base, 0x182038, 0.5f); /* darkened: paid for, but no hyper now (hit, an Accel running) */
+	float dy = pressed ? 3 : 0;
+	/* drop shadow */
+	panel_chamfer(x0 + 1, y0 + 4, x1 + 1, y1 + 4 - dy, c, 0xa0000000, 0x60000000);
+	y0 += dy;
+	y1 += dy - (pressed ? 1 : 0);
+	/* rim (gold on the Accel button), body gradient, gloss, slanted accent band */
+	unsigned rimt = k == HT_CENTER ? 0xfff6dc6a : mixc(base, 0xffffff, 0.7f),
+	         rimb = k == HT_CENTER ? 0xffa86a10 : mixc(base, 0x000000, 0.45f);
+	if (pressed)
+		rimt = 0xfffff4a0, rimb = 0xffe0b030;
+	if (!live)
+		rimt = mixc(rimt, 0x606878, 0.6f), rimb = mixc(rimb, 0x303440, 0.6f);
+	panel_chamfer(x0, y0, x1, y1, c, 0xff000000 | rimt, 0xff000000 | rimb);
+	unsigned bt = mixc(base, 0xffffff, pressed ? 0.05f : 0.28f), bb = mixc(base, 0x000000, pressed ? 0.6f : 0.45f);
+	panel_chamfer(x0 + 3, y0 + 3, x1 - 3, y1 - 3, c - 1.5f, 0xff000000 | bt, 0xff000000 | bb);
+	float my = y0 + (y1 - y0) * 0.46f;
+	gloss(x0 + 4, y0 + 4, x1 - 4, my, c - 2.5f, pressed ? 0.12f : live ? 0.30f : 0.16f);
+	{
+		float s = (y1 - y0) * 0.35f, bx = x1 - (x1 - x0) * 0.32f;
+		u32 a = ui_c2d(argb(live ? 0.10f : 0.05f, 0xffffff));
+		C2D_DrawTriangle(bx, y0 + 4, a, bx + 14, y0 + 4, a, bx - s, y1 - 4, a, UI_DEPTH);
+		C2D_DrawTriangle(bx + 14, y0 + 4, a, bx - s + 14, y1 - 4, a, bx - s, y1 - 4, a, UI_DEPTH);
+	}
+	/* Accel tag */
+	if (k == HT_CENTER) {
+		const char *cv = pl_cats ? kv_get(pl_cats, "COMMANDLIST_CATEGORY_ACCELHYPER") : NULL;
+		char cat[48];
+		snprintf(cat, sizeof cat, "%s", cv ? cv : "Accel Hyper");
+		cat[strcspn(cat, "\n")] = 0; /* the file's last key: "[EOF]" follows */
+		ui_rect(x0 + 8, y0 + 6, x1 - 8, y0 + 18, argb(0.45f, 0x000000));
+		text_draw(FONT_MENU, cat, (x0 + x1) / 2, y0 + 12, TEXT_CENTER,
+		          ui_c2d(argb(live ? 1.0f : 0.6f, 0xffe27a)), 0.6f, x1 - x0 - 20);
+	}
+	/* name */
+	const slot_label *l = &lab[k];
+	float lx0, ly0, lx1, ly1;
+	label_area(k, &lx0, &ly0, &lx1, &ly1);
+	ly0 += dy;
+	ly1 += dy;
+	float th = l->lh * (float)l->lines;
+	float ty = (ly0 + ly1) / 2 - th / 2 + l->lh / 2;
+	text_shadowed(l->font, l->text, (lx0 + lx1) / 2, ty, TEXT_CENTER, live ? 0xffffff : 0xb8bcc8, live ? 1.0f : 0.8f,
+	              l->scale, lx1 - lx0);
+	if (l->alt[0])
+		text_draw(FONT_SYSTEM, l->alt, (lx0 + lx1) / 2, ly1 + 6, TEXT_CENTER,
+		          ui_c2d(argb(live ? 0.9f : 0.6f, 0xffffff)), 0.68f, lx1 - lx0);
+	/* cost gems: lit while the gauge pays for it */
+	const ht_move *m = ht_slot(pl_chara, k);
+	int n = (int)(m->cost + 0.5f);
+	bool paid = state != S_POOR;
+	if (b->y1 - b->y0 > 70) {
+		float gx = (x0 + x1) / 2 - (float)(n - 1) * 7, gy = y1 - 11;
+		for (int i = 0; i < n; i++)
+			gem(gx + 14 * (float)i, gy, 4.5f, paid);
+	} else {
+		float gx = x1 - 20 - (float)(n - 1) * 7, gy = (y0 + y1) / 2;
+		for (int i = 0; i < n; i++)
+			gem(gx + 14 * (float)i, gy, 5.0f, paid);
+	}
+}
+
+/* Background: the menus' bottom gradient + the player's full-body art, faint. */
+void panel_backdrop(float a)
+{
+	ui_rect_grad(0, 0, BW, BH, argb(a, 0x1a2c5a), argb(a, 0x1a2c5a), argb(a, 0x05070f), argb(a, 0x05070f));
+	if (pl_art.t.ok)
+		bgfx_draw(&pl_art, 0, 0, 0x7ff, 0x7ff, 40, 0, 280, 240, argb(0.30f * a, 0xffffff), 1, false);
+	/* soft vignette at the bottom so the gauge reads */
+	ui_rect_grad(0, 180, BW, BH, argb(0, 0x05070f), argb(0, 0x05070f), argb(0.8f * a, 0x05070f),
+	             argb(0.8f * a, 0x05070f));
+}
+
+/* ================================================================ cache + per-frame draw */
+
+/* The panel's static layer (background, art, buttons, gauge frame) changes only when a button's state, the
+ * pressed button, the gauge level or a shown debug line does: it is rendered into an off-screen texture then
+ * and drawn as one quad every frame, with the gauge fill on top (a few solid quads). */
 #define TW 512
 #define TH 256
 static C3D_Tex ptex;
 static C3D_RenderTarget *ptgt;
 static bool pfail;
 
+/* The cache is a render target, and citro3d renders only into VRAM: 256 KB of VRAM, taken at match start after
+ * the sprite atlases were placed (render_load_match) and given back at match end. Without it (VRAM full) the
+ * panel is drawn in full every frame it changes. */
 static bool cache_init(void)
 {
-	if (ptgt || pfail)
-		return ptgt != NULL;
-	pfail = true;
-	if (!spr_init())
+	if (ptgt)
+		return true;
+	if (pfail || !spr_init())
 		return false;
-	if (!C3D_TexInit(&ptex, TW, TH, GPU_RGB565)) /* linear: VRAM is kept for the sprite atlases */
+	pfail = true;
+	if (!C3D_TexInitVRAM(&ptex, TW, TH, GPU_RGB565))
 		return false;
 	C3D_TexSetFilter(&ptex, GPU_NEAREST, GPU_NEAREST);
 	C3D_TexSetWrap(&ptex, GPU_CLAMP_TO_EDGE, GPU_CLAMP_TO_EDGE);
 	/* no depth buffer (citro3d then turns depth reads/writes off for this target): the static layer is drawn
-	 * back to front anyway, and a depth buffer would take 256 KB of VRAM */
+	 * back to front anyway */
 	ptgt = C3D_RenderTargetCreateFromTex(&ptex, GPU_TEXFACE_2D, 0, -1);
 	if (!ptgt) {
 		C3D_TexDelete(&ptex);
@@ -105,38 +471,122 @@ static bool cache_init(void)
 	return true;
 }
 
-static void draw_static(void)
+static void cache_free(void)
 {
-	C2D_DrawRectangle(0, 0, 0.1f, BW, 170, C2D_Color32(24, 34, 78, 255), C2D_Color32(24, 34, 78, 255),
-	                  C2D_Color32(10, 14, 34, 255), C2D_Color32(10, 14, 34, 255));
-	C2D_DrawRectSolid(BW / 2, 6, 0.2f, 1, 156, C2D_Color32(90, 110, 170, 120));
-	C2D_DrawRectSolid(0, 170, 0.2f, BW, 1, C2D_Color32(90, 110, 170, 200));
-	if (tbuf)
-		for (int i = 0; i < PANEL_LINES; i++)
-			if (line[i][0])
-				C2D_DrawText(&txt[i], C2D_WithColor, 6, 174 + i * 11, 0.9f, 0.42f, 0.42f, lcol[i]);
+	if (ptgt) {
+		C3D_FrameSync(); /* the GPU may still read the texture */
+		C3D_RenderTargetDelete(ptgt);
+		C3D_TexDelete(&ptex);
+		ptgt = NULL;
+	}
+	pfail = false;
 }
 
+typedef struct {
+	int8_t state[HT_NSLOT];
+	int8_t pressed, level, chara, lines;
+} panel_key;
+
+static void key_of(const aos_world *w, panel_key *k)
+{
+	memset(k, 0, sizeof *k);
+	k->chara = (int8_t)pl_chara;
+	for (int i = 0; i < HT_NSLOT; i++)
+		k->state[i] = (int8_t)(pl_on ? slot_state(w, i) : S_EMPTY);
+	k->pressed = touch_slot;
+	float h = pl_on ? w->p[pl_local].hyper : 0;
+	k->level = (int8_t)(h < 0 ? 0 : h > 3 ? 3 : (int)h);
+	k->lines = (int8_t)lines_shown();
+}
+
+static int gauge_fill_px(const aos_world *w)
+{
+	float h = pl_on ? w->p[pl_local].hyper : 0;
+	h = h < 0 ? 0 : h > 3 ? 3 : h;
+	return (int)(h * 256.0f); /* sub-cell resolution well below a pixel */
+}
 
 static uint32_t content_hash(const aos_world *w)
 {
-	uint32_t h = hud_c2d_panel_hash(w, BW, BH);
-	const uint8_t *b = (const uint8_t *)line;
-	for (size_t i = 0; i < sizeof line; i++)
+	panel_key k;
+	key_of(w, &k);
+	uint32_t h = 2166136261u;
+	const uint8_t *b = (const uint8_t *)&k;
+	for (size_t i = 0; i < sizeof k; i++)
 		h = (h ^ b[i]) * 16777619u;
-	b = (const uint8_t *)lcol;
-	for (size_t i = 0; i < sizeof lcol; i++)
-		h = (h ^ b[i]) * 16777619u;
-	return h;
+	if (k.lines) {
+		b = (const uint8_t *)line;
+		for (size_t i = 0; i < sizeof line; i++)
+			h = (h ^ b[i]) * 16777619u;
+	}
+	int f = gauge_fill_px(w) >> 3; /* ~1/3 px steps of the 80 px cells */
+	return (h ^ (uint32_t)f) * 16777619u;
+}
+
+static void draw_gauge_frame(int level)
+{
+	panel_chamfer(4, GAUGE_Y0 - 5, BW - 4, GAUGE_Y1 + 3, 5, 0xc0101830, 0xe0060a18);
+	char lbl[48];
+	snprintf(lbl, sizeof lbl, "%s", tr("MENU_CONFIG_KEY_HYPER"));
+	text_draw_shadowed(FONT_SYSTEM, lbl, 9, (GAUGE_Y0 + GAUGE_Y1) / 2, TEXT_LEFT, ui_c2d(0xffd8e4ff), 0.78f, 40);
+	char d[12];
+	snprintf(d, sizeof d, "%d", level);
+	text_draw(FONT_MENU, d, GAUGE_X0 - 5, (GAUGE_Y0 + GAUGE_Y1) / 2 - 1, TEXT_RIGHT,
+	          ui_c2d(level >= 3 ? 0xffffd040 : level ? 0xff8ff0ff : 0xff8090a8), 0.75f, 0);
+	float cw = (GAUGE_X1 - GAUGE_X0 - 8) / 3;
+	for (int i = 0; i < 3; i++) {
+		float cx0 = GAUGE_X0 + (cw + 4) * (float)i;
+		ui_rect(cx0 - 1, GAUGE_Y0 - 1, cx0 + cw + 1, GAUGE_Y1 + 1, 0xff4a5a80);
+		ui_rect(cx0, GAUGE_Y0, cx0 + cw, GAUGE_Y1, 0xff0a1024);
+	}
+}
+
+static void draw_gauge_fill(const aos_world *w) /* citro2d, after the batch pass */
+{
+	float h = (float)gauge_fill_px(w) / 256.0f;
+	float cw = (GAUGE_X1 - GAUGE_X0 - 8) / 3;
+	bool full = h >= 3.0f;
+	for (int i = 0; i < 3; i++) {
+		float f = h - (float)i;
+		if (f <= 0)
+			break;
+		bool whole = f >= 1;
+		if (f > 1)
+			f = 1;
+		float cx0 = GAUGE_X0 + (cw + 4) * (float)i, cx1 = cx0 + cw * f;
+		unsigned top = full ? 0xfffff07a : whole ? 0xff7ff2ff : 0xff3a8ab0, bot = full ? 0xffd08a10 : whole ? 0xff1a90d0
+		                                                                                                     : 0xff1a5070;
+		ui_rect_grad(cx0, GAUGE_Y0, cx1, GAUGE_Y1, top, top, bot, bot);
+		ui_rect(cx0, GAUGE_Y0, cx1, GAUGE_Y0 + 1, 0xb0ffffff);
+	}
+}
+
+static void draw_static(const aos_world *w)
+{
+	panel_key k;
+	key_of(w, &k);
+	ui_blend_reset();
+	panel_backdrop(1.0f);
+	if (pl_on)
+		for (int i = 0; i < HT_NSLOT; i++)
+			draw_button(i, k.state[i], k.pressed == i);
+	draw_gauge_frame(k.level);
+	if (k.lines && tbuf) {
+		ui_rect(0, 150, BW, BH, 0xc0000000);
+		for (int i = 0; i < PANEL_LINES; i++)
+			if (line[i][0])
+				C2D_DrawText(&txt[i], C2D_WithColor, 4, 152 + i * 14, 0.9f, 0.42f, 0.42f, lcol[i]);
+	}
 }
 
 /* panel_same's hash for this frame's panel_draw (the scene asks first, then draws) */
 static uint32_t asked_hash;
 static bool asked;
+static uint32_t cached_key; /* key hash of the cached static layer */
 
 bool panel_same(const aos_world *w)
 {
-	if (!bottom || !drawn_ok || dirty || !pvalid)
+	if (!bottom || !drawn_ok || !pvalid || (dirty && lines_shown()))
 		return false;
 	asked_hash = content_hash(w);
 	asked = true;
@@ -150,27 +600,35 @@ void panel_draw(const aos_world *w)
 	drawn_hash = asked ? asked_hash : content_hash(w);
 	asked = false;
 	drawn_ok = true;
-	bool text = dirty;
-	if (dirty && tbuf) {
+	bool text = false;
+	if (dirty && tbuf && lines_shown()) {
 		dirty = false;
+		text = true;
 		C2D_TextBufClear(tbuf);
 		for (int i = 0; i < PANEL_LINES; i++) {
 			C2D_TextParse(&txt[i], tbuf, line[i]);
 			C2D_TextOptimize(&txt[i]);
 		}
 	}
+	panel_key k;
+	key_of(w, &k);
+	uint32_t kh = 2166136261u;
+	const uint8_t *b = (const uint8_t *)&k;
+	for (size_t i = 0; i < sizeof k; i++)
+		kh = (kh ^ b[i]) * 16777619u;
 	const u32 bg = C2D_Color32(10, 14, 34, 255);
-	bool cached = cache_init();
-	if (cached && (!pvalid || text)) {
+	bool cached = ptgt != NULL; /* made at match start (panel_match_begin) */
+	if (cached && (!pvalid || text || kh != cached_key)) {
 		pvalid = true;
+		cached_key = kh;
 		C2D_TargetClear(ptgt, bg);
 		C2D_SceneBegin(ptgt);
-		draw_static();
+		draw_static(w);
 	}
 	C2D_TargetClear(bottom, bg);
 	C2D_SceneBegin(bottom);
 	if (!cached) /* no cache texture: everything every frame */
-		draw_static();
+		draw_static(w);
 	spr_begin(BW, 0.1f);
 	if (cached) { /* the cache's 320x240 corner, 1:1 (drawn y-down from the texture's top row = v 1) */
 		spr_state(&ptex, true, 1);
@@ -183,6 +641,6 @@ void panel_draw(const aos_world *w)
 			spr_set(&v[3], BW, BH, u1, v1, 0xffffffff);
 		}
 	}
-	hud_c2d_panel(w, BW, BH); /* depth 0.9 */
 	spr_end();
+	draw_gauge_fill(w);
 }

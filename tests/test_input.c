@@ -64,13 +64,17 @@ static void test_quick_tap_resolves_on_release(void)
 	CHECK(ev[2] == 0 && ev[3] == 0, "no duplicate");
 }
 
-static void test_hyper(void)
+/* R alone = Shield, on the press frame (hypers are on the touch screen since 2026-11-10). */
+static void test_r_shield(void)
 {
 	aos_input s = fresh(3, 15);
-	uint32_t f[] = {R, R, R, R, R}, ev[5], held[5];
-	run(&s, f, 5, ev, held);
-	CHECK(ev[3] == AOS_EV_HYPER && (ev[0] | ev[1] | ev[2] | ev[4]) == 0, "hyper once on frame W");
-	CHECK(held[4] & AOS_HELD_HYPER, "hyper held");
+	uint32_t f[] = {R, R, R, R, R, 0, R}, ev[7], held[7];
+	run(&s, f, 7, ev, held);
+	CHECK(ev[0] == AOS_EV_SHIELD && (ev[1] | ev[2] | ev[3] | ev[4] | ev[5]) == 0, "R: shield once, at once (got %x)", ev[0]);
+	for (int i = 0; i < 5; i++)
+		CHECK(held[i] == AOS_HELD_SHIELD, "R held -> shield held (frame %d got %x)", i, held[i]);
+	CHECK(held[5] == 0, "R released");
+	CHECK(ev[6] == AOS_EV_SHIELD, "R again -> shield again");
 }
 
 static void test_shield_same_frame(void)
@@ -80,7 +84,7 @@ static void test_shield_same_frame(void)
 	uint32_t all = run(&s, f, 6, ev, held);
 	CHECK(ev[0] == AOS_EV_SHIELD, "same-frame shield immediate (got %x)", ev[0]);
 	CHECK(all == AOS_EV_SHIELD, "no dash/hyper with shield (got %x)", all);
-	CHECK((held[4] & AOS_HELD_SHIELD) && !(held[4] & (AOS_HELD_DASH | AOS_HELD_HYPER)), "shield held only");
+	CHECK(held[4] == AOS_HELD_SHIELD, "shield held only (got %x)", held[4]);
 	CHECK(held[5] == 0, "shield released");
 }
 
@@ -91,9 +95,12 @@ static void test_shield_staggered_within_window(void)
 			aos_input s = fresh(3, 15);
 			uint32_t first = lead ? R : L, f[10], ev[10];
 			for (int i = 0; i < 10; i++) f[i] = i < gap ? first : (L | R);
-			uint32_t all = run(&s, f, 10, ev, NULL);
+			uint32_t held[10];
+			uint32_t all = run(&s, f, 10, ev, held);
 			CHECK(all == AOS_EV_SHIELD, "lead=%d gap=%d: expected only shield, got %x", lead, gap, all);
-			CHECK(ev[gap] == AOS_EV_SHIELD, "lead=%d gap=%d: shield on partner frame", lead, gap);
+			/* L first: the shield comes with R; R first: at once */
+			CHECK(ev[lead ? 0 : gap] == AOS_EV_SHIELD, "lead=%d gap=%d: shield on the R press frame", lead, gap);
+			CHECK(held[9] == AOS_HELD_SHIELD, "lead=%d gap=%d: shield held, no dash (got %x)", lead, gap, held[9]);
 		}
 }
 
@@ -102,10 +109,10 @@ static void test_no_shield_after_window(void)
 	aos_input s = fresh(3, 15);
 	uint32_t f[] = {L, L, L, L, L | R, L | R, L | R, L | R, L | R}, ev[9], held[9];
 	uint32_t all = run(&s, f, 9, ev, held);
-	CHECK(!(all & AOS_EV_SHIELD), "late partner must not shield (got %x)", all);
+	CHECK(all == (AOS_EV_DASH | AOS_EV_SHIELD), "late R: dash, then shield (got %x)", all);
 	CHECK(ev[3] == AOS_EV_DASH, "dash resolved");
-	CHECK(ev[7] == AOS_EV_HYPER, "late R becomes hyper (got %x)", ev[7]);
-	CHECK((held[8] & AOS_HELD_DASH) && (held[8] & AOS_HELD_HYPER) && !(held[8] & AOS_HELD_SHIELD), "both held separately");
+	CHECK(ev[4] == AOS_EV_SHIELD, "late R shields at once (got %x)", ev[4]);
+	CHECK(held[8] == (AOS_HELD_DASH | AOS_HELD_SHIELD), "both held separately (got %x)", held[8]);
 }
 
 static void test_released_before_partner_no_shield(void)
@@ -114,8 +121,8 @@ static void test_released_before_partner_no_shield(void)
 	aos_input s = fresh(3, 15);
 	uint32_t f[] = {L, R, R, R, R, 0}, ev[6];
 	uint32_t all = run(&s, f, 6, ev, NULL);
-	CHECK(!(all & AOS_EV_SHIELD), "no overlap -> no shield (got %x)", all);
-	CHECK(ev[1] == AOS_EV_DASH && ev[4] == AOS_EV_HYPER, "dash then hyper (%x %x)", ev[1], ev[4]);
+	CHECK(all == (AOS_EV_DASH | AOS_EV_SHIELD), "no overlap -> L dashes, R shields (got %x)", all);
+	CHECK(ev[1] == (AOS_EV_DASH | AOS_EV_SHIELD), "dash and shield on the R frame (%x)", ev[1]);
 }
 
 static void test_shield_release_one_side(void)
@@ -175,7 +182,7 @@ static void test_zero_window(void)
 	uint32_t f[] = {L, L | R, 0, L | R}, ev[4];
 	run(&s, f, 4, ev, NULL);
 	CHECK(ev[0] == AOS_EV_DASH, "W=0 dash immediate");
-	CHECK(ev[1] == AOS_EV_HYPER, "W=0 staggered is hyper (got %x)", ev[1]);
+	CHECK(ev[1] == AOS_EV_SHIELD, "W=0 staggered: R shields (got %x)", ev[1]);
 	CHECK(ev[3] == AOS_EV_SHIELD, "W=0 same-frame shield (got %x)", ev[3]);
 }
 
@@ -190,6 +197,22 @@ static void test_face_buttons(void)
 	CHECK(held[2] == 0, "released");
 }
 
+static void test_l_after_r_joins_shield(void)
+{
+	/* R first, L within the window: one shield, L never dashes, even after R is let go */
+	aos_input s = fresh(3, 15);
+	uint32_t f[] = {R, R, L | R, L | R, L, L, L, 0}, ev[8], held[8];
+	uint32_t all = run(&s, f, 8, ev, held);
+	CHECK(all == AOS_EV_SHIELD && ev[0] == AOS_EV_SHIELD, "one shield (got %x)", all);
+	CHECK(held[3] == AOS_HELD_SHIELD && held[5] == 0, "shield while R held, nothing after (got %x %x)", held[3], held[5]);
+	/* L long after R: a dash while shielding */
+	s = fresh(3, 15);
+	uint32_t g[] = {R, R, R, R, R, L | R, L | R, L | R, L | R, L | R}, ev2[10], held2[10];
+	all = run(&s, g, 10, ev2, held2);
+	CHECK(all == (AOS_EV_SHIELD | AOS_EV_DASH) && ev2[8] == AOS_EV_DASH, "late L dashes (got %x %x)", all, ev2[8]);
+	CHECK(held2[9] == (AOS_HELD_SHIELD | AOS_HELD_DASH), "both held (got %x)", held2[9]);
+}
+
 static void test_long_hold_no_overflow(void)
 {
 	aos_input s = fresh(3, 15);
@@ -202,16 +225,16 @@ static void test_long_hold_no_overflow(void)
 	CHECK(dashes == 1 && (o.held & AOS_HELD_DASH), "long hold: one dash, still held");
 }
 
-/* Fuzz: random bumper input; every L/R press must resolve exactly once into
- * exactly one outcome within chord_window frames; shield only while both are
- * held; deterministic replay. */
+/* Fuzz: random bumper input. Every R press shields on its press frame; shield is held exactly while R is;
+ * every L press resolves (Dash / Hyper Dash event, or silently joins an L+R shield) within chord_window
+ * frames; deterministic replay. */
 static void test_fuzz(void)
 {
 	srand(12345);
 	for (int w = 0; w <= 6; w++) {
 		aos_input s = fresh(w, 15), s2 = fresh(w, 15);
 		uint32_t prev = 0;
-		int l_open = -1, r_open = -1; /* frame of unresolved press */
+		int l_open = -1; /* frame of the current L press while unresolved */
 		for (int i = 0; i < 2000000; i++) {
 			uint32_t raw = prev;
 			int p = rand() % 100;
@@ -225,24 +248,15 @@ static void test_fuzz(void)
 				return;
 			}
 			uint32_t rise = raw & ~prev;
-			if (rise & L) { if (l_open >= 0) { CHECK(0, "w=%d L press %d never resolved", w, l_open); return; } l_open = i; }
-			if (rise & R) { if (r_open >= 0) { CHECK(0, "w=%d R press %d never resolved", w, r_open); return; } r_open = i; }
-			int lres = !!(o.events & (AOS_EV_DASH | AOS_EV_HYPER_DASH));
-			int rres = !!(o.events & AOS_EV_HYPER);
+			if (rise & L) { if (l_open >= 0 && s.l.pending) { CHECK(0, "w=%d L press %d never resolved", w, l_open); return; } l_open = i; }
 			int sh = !!(o.events & AOS_EV_SHIELD);
-			if (sh) {
-				if (!((raw & L) && (raw & R) && l_open >= 0 && r_open >= 0)) { CHECK(0, "w=%d bad shield at %d", w, i); return; }
-				int d = l_open > r_open ? l_open - r_open : r_open - l_open;
-				if (d > w) { CHECK(0, "w=%d shield with gap %d", w, d); return; }
-				if (lres || rres) { CHECK(0, "w=%d shield+single same frame at %d", w, i); return; }
-				l_open = r_open = -1;
-			}
+			if (sh != !!(rise & R)) { CHECK(0, "w=%d shield event %d without/with R press at %d", w, sh, i); return; }
+			if (!!(o.held & AOS_HELD_SHIELD) != !!(raw & R)) { CHECK(0, "w=%d shield held != R at %d", w, i); return; }
+			int lres = !!(o.events & (AOS_EV_DASH | AOS_EV_HYPER_DASH));
 			if ((o.events & AOS_EV_DASH) && (o.events & AOS_EV_HYPER_DASH)) { CHECK(0, "dash+hyperdash at %d", i); return; }
 			if (lres) { if (l_open < 0) { CHECK(0, "w=%d spurious L event at %d", w, i); return; } l_open = -1; }
-			if (rres) { if (r_open < 0) { CHECK(0, "w=%d spurious R event at %d", w, i); return; } r_open = -1; }
+			if (l_open >= 0 && !s.l.pending && !lres) l_open = -1; /* joined a shield */
 			if (l_open >= 0 && i - l_open >= w) { CHECK(0, "w=%d L latency exceeded at %d", w, i); return; }
-			if (r_open >= 0 && i - r_open >= w) { CHECK(0, "w=%d R latency exceeded at %d", w, i); return; }
-			if ((o.held & AOS_HELD_SHIELD) && (o.held & (AOS_HELD_DASH | AOS_HELD_HYPER))) { CHECK(0, "shield+dash held at %d", i); return; }
 			prev = raw;
 		}
 		CHECK(1, "fuzz w=%d", w);
@@ -253,7 +267,7 @@ int main(void)
 {
 	test_dash_resolves_after_window();
 	test_quick_tap_resolves_on_release();
-	test_hyper();
+	test_r_shield();
 	test_shield_same_frame();
 	test_shield_staggered_within_window();
 	test_no_shield_after_window();
@@ -265,6 +279,7 @@ int main(void)
 	test_shield_cancels_double_tap();
 	test_zero_window();
 	test_face_buttons();
+	test_l_after_r_joins_shield();
 	test_long_hold_no_overflow();
 	test_fuzz();
 	printf("%d checks, %d failures\n", checks, failures);

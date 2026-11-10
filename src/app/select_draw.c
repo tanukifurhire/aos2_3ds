@@ -9,9 +9,12 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "../input/hyper_touch.h"
+#include "../platform/panel.h"
 #include "../platform/stage.h"
 #include "audio.h"
 #include "modes_flow.h"
+#include "movelist.h"
 #include "music.h"
 #include "scene.h"
 #include "select.h"
@@ -380,6 +383,74 @@ static void vs_update3ds(void)
 			std_load(p, v->chara[p], v->color[p]);
 }
 
+/* ---------------- pieces shared with the local-wireless select (netsel.c; selgfx.h "selx_") */
+static void stage_cards(void);
+static void stage_name_band(void);
+static void bgm_band(void);
+static void vs_portrait(int p);
+static void vs_wheel(int p);
+static void vs_standing(int p);
+
+void selx_textures(void) /* the VS Select's textures (vs_init3ds without the scene state) */
+{
+	load_select_textures();
+	bg_load(BG_STAGENAME);
+	std_key[0] = std_key[1] = -1;
+	for (int i = 0; i < 8; i++) {
+		char n[16];
+		snprintf(n, sizeof n, "stagenz%d", i);
+		bgfx_load(&nz_tex[i], n, 0, 0, 0.5f);
+	}
+}
+void selx_free(void) { select_free(); }
+void selx_backdrop(void)
+{
+	draw_bgp();
+	stage3ds_draw();
+	ui_blend_reset();
+}
+void selx_frame(void)
+{
+	letterbox();
+	title();
+}
+void selx_stage_select(void)
+{
+	stage_cards();
+	stage_name_band();
+	bgm_band();
+}
+void selx_portrait(int p) { vs_portrait(p); }
+void selx_wheel(int p) { vs_wheel(p); }
+void selx_standing(int p) { vs_standing(p); }
+void selx_std(int p, int chara, int colopt) { std_load(p, chara, colopt); }
+void selx_bottom_bg(void) { bottom_bg(); }
+void selx_pill(float y, unsigned strip, const char *label, float a, float w) { pill_label(y, strip, label, a, w); }
+void selx_stats(int id, float x, float y, float a) { stats_panel(id, x, y, a); }
+void selx_icon(int id, float cx, float cy, float half, unsigned argb) { draw_icon(id, cx, cy, half, argb); }
+void selx_noise(int frame, float cx, float cy, unsigned argb) { draw_noise(frame, cx, cy, argb); }
+void selx_name_plate(int id, float cx, float cy, float hw, float hh, unsigned argb)
+{
+	draw_name_plate(id, cx, cy, hw, hh, argb);
+}
+void selx_ring(bool p2, float cx, float cy, float a, int ring) { draw_ring(p2, cx, cy, a, 1.0f, ring); }
+void selx_stage_name(int id, float cx, float cy, float k, unsigned argb) /* stage_name_band's art, any place / size */
+{
+	float sx0, sy0, sx1, sy1, hw;
+	if (id == 1)
+		sx0 = 0, sy0 = 0x40, sx1 = 0x1df, sy1 = 0x7f, hw = 0x78;
+	else if (id < 16)
+		sx0 = 0, sy0 = (float)(64 * id), sx1 = 0x25f, sy1 = sy0 + 63, hw = 0x98;
+	else
+		sx0 = 480, sy0 = (float)(64 * (id & 15)), sx1 = 979, sy1 = sy0 + 63, hw = 0x7d;
+	bgfx_draw_c(bg_get(BG_STAGENAME), sx0, sy0, sx1, sy1, cx, cy, hw * S * k, 0x10 * S * k, 0, argb, 1, false);
+}
+void selx_arrows(float xl, float xr, float y, unsigned argb) /* FUN_007a6f90 option arrows */
+{
+	bgfx_draw_c(bg_get(BG_SELSYS), 0x280, 0x118, 0x2bb, 0x153, xl, y, 7, 7, 0, argb, 1, false);
+	bgfx_draw_c(bg_get(BG_SELSYS), 0x334, 0x118, 0x36f, 0x153, xr, y, 7, 7, 0, argb, 1, false);
+}
+
 static void stage_cards(void) /* FUN_007a91f0, as a 2D projection (B.6) */
 {
 	vssel_state *v = &g_vs;
@@ -639,7 +710,6 @@ static const scene_def vs_scene = {
 
 /* ================================================================ pause overlay (Battle scene) */
 
-static kv_table *cmdlist;
 
 void pause_draw_top(void)
 {
@@ -673,37 +743,303 @@ void pause_draw_top(void)
 	ui_set_depth(UI_DEPTH_DEFAULT);
 }
 
+/* ---- command list (bottom screen; the PC draws it over the paused match, FUN_006aed80 + FUN_00591620).
+ * Port layout: the touch hyper panel is replaced by the list while it is open: the panel backdrop (menu
+ * gradient + the player's art), category bands, one card per move with the 3DS input drawn as button glyphs
+ * (A B X Y L, the touch hyper buttons as a small map of the panel with the move's button lit) and the move
+ * name in the menu font. Up/Down scroll (pause_state.scroll); the announce band (0x66) keeps the bottom rows. */
+
+static kv_table *cmdlist, *cmdcats, *cmdinstr;
+
+#define CL_TOP 30.0f
+#define CL_BOTTOM 194.0f
+#define CL_ROW 19.0f
+#define CL_HEAD 16.0f
+#define CL_NOTE 13.0f
+
+static const unsigned cat_col[4] = {0x3a8cff, 0x2fbf71, 0xb05cff, 0xff4050};
+static const char *const cat_key[4] = {"COMMANDLIST_CATEGORY_REGULARWEAPON", "COMMANDLIST_CATEGORY_SPECIALWEAPON",
+                                       "COMMANDLIST_CATEGORY_HYPERATTACK", "COMMANDLIST_CATEGORY_ACCELHYPER"};
+
+static const char *cl_get(kv_table *t, const char *key, const char *def)
+{
+	static char buf[4][128]; /* first line only: a file's last value is followed by "[EOF]" */
+	static int n;
+	const char *v = t ? kv_get(t, key) : NULL;
+	char *b = buf[n++ & 3];
+	snprintf(b, sizeof buf[0], "%s", v ? v : def);
+	b[strcspn(b, "\n")] = 0;
+	return b;
+}
+
+static void cl_load(void)
+{
+	static const char *const files[3] = {"commandlist_names", "commandlist_categories", "commandlist_instructions"};
+	kv_table **dst[3] = {&cmdlist, &cmdcats, &cmdinstr};
+	for (int i = 0; i < 3; i++)
+		if (!*dst[i]) {
+			char path[96];
+			snprintf(path, sizeof path, "romfs:/script/%s/%s.txt", lang_dir(strings_language()), files[i]);
+			*dst[i] = kv_load(path);
+		}
+}
+
+static void cl_free(void)
+{
+	kv_free(cmdlist);
+	kv_free(cmdcats);
+	kv_free(cmdinstr);
+	cmdlist = cmdcats = cmdinstr = NULL;
+}
+
+/* 3DS face button: coloured disc (New 3DS colours), light rim, letter */
+static float glyph_face(float x, float cy, char letter, float a)
+{
+	unsigned col = letter == 'A' ? 0xe0403c : letter == 'B' ? 0xf0c020 : letter == 'X' ? 0x3a7cf0 : 0x30b060;
+	float r = 7.5f, cx = x + r;
+	C2D_DrawCircleSolid(cx, cy + 1, UI_DEPTH, r + 0.5f, c2d(a8(a * 0.6f)));
+	C2D_DrawCircleSolid(cx, cy, UI_DEPTH, r, c2d(a8(a) | 0xf4f4f8));
+	C2D_DrawCircleSolid(cx, cy, UI_DEPTH, r - 1.5f, c2d(a8(a) | col));
+	C2D_DrawCircleSolid(cx - 1.5f, cy - 2, UI_DEPTH, r - 4.0f, c2d(a8(a * 0.25f) | 0xffffff));
+	char s[2] = {letter, 0};
+	text_draw(FONT_SYSTEM, s, cx + 0.5f, cy + 1, TEXT_CENTER, c2d(a8(a * 0.8f)), 0.8f, 0);
+	text_draw(FONT_SYSTEM, s, cx, cy, TEXT_CENTER, c2d(a8(a) | 0xffffff), 0.8f, 0);
+	return 2 * r;
+}
+
+/* shoulder button: grey slanted pill */
+static float glyph_shoulder(float x, float cy, char letter, float a)
+{
+	float w = 18, h = 12;
+	panel_chamfer(x, cy - h / 2 + 1, x + w, cy + h / 2 + 1, 3, a8(a * 0.6f), a8(a * 0.6f));
+	panel_chamfer(x, cy - h / 2, x + w, cy + h / 2, 3, a8(a) | 0xe8eaf0, a8(a) | 0x8a90a0);
+	panel_chamfer(x + 1.5f, cy - h / 2 + 1.5f, x + w - 1.5f, cy + h / 2 - 1.5f, 2, a8(a) | 0x6a7080, a8(a) | 0x3a4050);
+	char s[2] = {letter, 0};
+	text_draw(FONT_SYSTEM, s, x + w / 2, cy, TEXT_CENTER, c2d(a8(a) | 0xffffff), 0.75f, 0);
+	return w;
+}
+
+/* touch hyper button: a small map of the bottom panel with the move's button lit */
+static float glyph_touch(float x, float cy, int slot, float a)
+{
+	const float w = 26, h = 18, sx = w / 320.0f, sy = h / 240.0f, y0 = cy - h / 2;
+	panel_chamfer(x - 1, y0 - 1, x + w + 1, y0 + h + 1, 3, a8(a) | 0xc8d0e0, a8(a) | 0x707890);
+	ui_rect(x, y0, x + w, y0 + h, a8(a) | 0x0a1024);
+	for (int k = 0; k < HT_NSLOT; k++) {
+		float bx0, by0, bx1, by1;
+		panel_slot_rect(k, &bx0, &by0, &bx1, &by1);
+		unsigned c = k == slot ? panel_slot_color(k) : 0x3a4258;
+		ui_rect(x + bx0 * sx + 0.5f, y0 + by0 * sy + 0.5f, x + bx1 * sx - 0.5f, y0 + by1 * sy - 0.5f, a8(a) | c);
+	}
+	return w;
+}
+
+static float glyph_text(float x, float cy, const char *s, unsigned rgb, float a)
+{
+	text_draw(FONT_SYSTEM, s, x, cy, TEXT_LEFT, c2d(a8(a) | rgb), 0.75f, 0);
+	return text_width(FONT_SYSTEM, s, 0.75f);
+}
+
+static float glyph_hold(float x, float cy, float a)
+{
+	const char *s = cl_get(cmdinstr, "COMMANDLISTINSTRUCTION_HOLD", "HOLD");
+	float w = text_width(FONT_SYSTEM, s, 0.62f) + 8;
+	panel_chamfer(x, cy - 6, x + w, cy + 6, 3, a8(a) | 0xffd84a, a8(a) | 0xc08a10);
+	panel_chamfer(x + 1, cy - 5, x + w - 1, cy + 5, 2, a8(a) | 0x3a2a08, a8(a) | 0x201404);
+	text_draw(FONT_SYSTEM, s, x + w / 2, cy, TEXT_CENTER, c2d(a8(a) | 0xffe27a), 0.62f, 0);
+	return w;
+}
+
+static int tok_slot(const ml_entry *e)
+{
+	bool s = false, b = false, d = false;
+	for (int i = 0; i < e->ntok; i++) {
+		s |= e->tok[i] == T_S;
+		b |= e->tok[i] == T_B;
+		d |= e->tok[i] == T_D;
+	}
+	return s && b ? HT_CENTER : s ? HT_UP : b ? HT_RIGHT : d ? HT_DOWN : HT_LEFT;
+}
+
+/* The 3DS input of a move (user mapping): S+A = X, S+B = Y, D = L held, hypers = touch buttons. Returns the end
+ * x; *tag gets a range note (CLOSE / LONG) for the right side of the card. */
+static float draw_input(const ml_entry *e, float x, float cy, float a, const char **tag)
+{
+	bool hA = false, hB = false, hS = false, hD = false, hold = false, dashing = false;
+	*tag = NULL;
+	for (int i = 0; i < e->ntok; i++)
+		switch (e->tok[i]) {
+		case T_A: hA = true; break;
+		case T_B: hB = true; break;
+		case T_S: hS = true; break;
+		case T_D: hD = true; break;
+		case T_HOLD: hold = true; break;
+		case T_DASHING: dashing = true; break;
+		case T_CLOSE: *tag = cl_get(cmdinstr, "COMMANDLISTINSTRUCTION_CLOSERANGE", "(CLOSE RANGE)"); break;
+		case T_LONG: *tag = cl_get(cmdinstr, "COMMANDLISTINSTRUCTION_LONGRANGE", "(LONG RANGE)"); break;
+		default: break;
+		}
+	if (dashing) { /* "also while dashing": the L is optional */
+		x += glyph_text(x, cy, "(", 0xa0a8c0, a);
+		x += glyph_shoulder(x + 1, cy, 'L', a * 0.75f) + 1;
+		x += glyph_text(x + 1, cy, ")", 0xa0a8c0, a) + 3;
+	}
+	if (hD && e->cat < ML_HYPER) { /* the D+H touch button holds L itself */
+		x += glyph_shoulder(x, cy, 'L', a) + 2;
+		ui_rect(x, cy - 0.75f, x + 7, cy + 0.75f, a8(a) | 0xffffff); /* "+" */
+		ui_rect(x + 2.75f, cy - 3.5f, x + 4.25f, cy + 3.5f, a8(a) | 0xffffff);
+		x += 9;
+	}
+	if (e->cat >= ML_HYPER) {
+		x += glyph_touch(x, cy, tok_slot(e), a);
+	} else {
+		char btn = hS && hA ? 'X' : hS && hB ? 'Y' : hS ? 'X' : hA ? 'A' : 'B';
+		x += glyph_face(x, cy, btn, a);
+	}
+	if (hold)
+		x += 3 + glyph_hold(x + 3, cy, a);
+	return x;
+}
+
+/* width draw_input will take (same rules, no drawing): the name column starts after the widest input */
+static float input_width(const ml_entry *e)
+{
+	bool hD = false, hold = false, dashing = false;
+	for (int i = 0; i < e->ntok; i++) {
+		hD |= e->tok[i] == T_D;
+		hold |= e->tok[i] == T_HOLD;
+		dashing |= e->tok[i] == T_DASHING;
+	}
+	float w = e->cat >= ML_HYPER ? 26 : 15;
+	if (dashing)
+		w += text_width(FONT_SYSTEM, "()", 0.75f) + 1 + 18 + 1 + 1 + 3;
+	if (hD && e->cat < ML_HYPER)
+		w += 18 + 2 + 9;
+	if (hold)
+		w += 3 + text_width(FONT_SYSTEM, cl_get(cmdinstr, "COMMANDLISTINSTRUCTION_HOLD", "HOLD"), 0.62f) + 8;
+	return w;
+}
+static float cl_name_x; /* name column of the open list */
+
+enum { CI_HEAD, CI_MOVE, CI_NOTE };
+typedef struct {
+	uint8_t kind, cat;
+	const ml_entry *e;
+	const char *note;
+} cl_item;
+
+static float item_h(const cl_item *it) { return it->kind == CI_HEAD ? CL_HEAD : it->kind == CI_MOVE ? CL_ROW : CL_NOTE; }
+
+static int cl_items(int chara, cl_item *out, int max)
+{
+	const ml_entry *e;
+	int n = movelist_get(chara, &e), k = 0, cat = -1;
+	for (int i = 0; i < n && k < max - 1; i++) {
+		if (e[i].cat != cat) {
+			cat = e[i].cat;
+			out[k++] = (cl_item){CI_HEAD, (uint8_t)cat, NULL, NULL};
+		}
+		out[k++] = (cl_item){CI_MOVE, e[i].cat, &e[i], NULL};
+	}
+	static const char *const notes[3] = {"NOTE", "NOTE1", "NOTE2"};
+	for (int i = 0; i < 3 && k < max; i++) {
+		char key[64];
+		snprintf(key, sizeof key, "COMMANDLIST_%s_%s", sel_char_key(chara), notes[i]);
+		const char *v = cmdlist ? kv_get(cmdlist, key) : NULL;
+		if (v)
+			out[k++] = (cl_item){CI_NOTE, 0, NULL, v};
+	}
+	return k;
+}
+
+static void draw_item(const cl_item *it, float y, float a)
+{
+	const float x0 = 6, x1 = BW - 12;
+	if (it->kind == CI_HEAD) {
+		unsigned c = cat_col[it->cat & 3];
+		float cy = y + CL_HEAD / 2 + 1;
+		ui_rect_grad(x0, y + 3, x1, y + CL_HEAD - 1, a8(a * 0.9f) | c, a8(0) | c, a8(0) | c, a8(a * 0.9f) | c);
+		ui_rect(x0, y + 3, x0 + 3, y + CL_HEAD - 1, a8(a) | 0xffffff);
+		text_draw_shadowed(FONT_MENU, cl_get(cmdcats, cat_key[it->cat & 3], ""), x0 + 9, cy, TEXT_LEFT,
+		                   c2d(a8(a) | 0xffffff), 0.62f, 0);
+		return;
+	}
+	if (it->kind == CI_NOTE) {
+		char note[128];
+		snprintf(note, sizeof note, "%s", it->note);
+		note[strcspn(note, "\n")] = 0;
+		text_draw(FONT_SYSTEM, note, x0 + 4, y + CL_NOTE / 2, TEXT_LEFT, c2d(a8(a) | 0xffe27a), 0.7f, x1 - x0 - 8);
+		return;
+	}
+	const ml_entry *e = it->e;
+	float cy = y + CL_ROW / 2;
+	unsigned acc = e->cat >= ML_HYPER ? panel_slot_color(tok_slot(e)) : cat_col[e->cat & 3];
+	panel_chamfer(x0, y + 1, x1, y + CL_ROW - 1, 5, a8(a * 0.82f) | 0x1c2a52, a8(a * 0.82f) | 0x0c1430);
+	ui_rect(x0 + 4, y + 2, x1 - 4, y + 3, a8(a * 0.12f) | 0xffffff);
+	ui_rect(x0, y + 4, x0 + 3, y + CL_ROW - 4, a8(a) | acc);
+	const char *tag;
+	draw_input(e, x0 + 10, cy, a, &tag);
+	float nx = cl_name_x, nmax = x1 - nx - 4;
+	if (tag) {
+		float tw = text_width(FONT_SYSTEM, tag, 0.65f);
+		text_draw(FONT_SYSTEM, tag, x1 - 5, cy, TEXT_RIGHT, c2d(a8(a * 0.85f) | 0xa8c8ff), 0.65f, 0);
+		nmax -= tw + 6;
+	}
+	if (e->star)
+		text_draw(FONT_MENU, e->star == 2 ? "**" : "*", nx - 2, cy, TEXT_RIGHT, c2d(a8(a) | 0xffe27a), 0.72f, 0);
+	text_draw_shadowed(FONT_MENU, cl_get(cmdlist, e->key, ""), nx, cy, TEXT_LEFT, c2d(a8(a) | 0xffffff), 0.72f, nmax);
+}
+
 void pause_draw_bottom(int chara)
 {
 	pause_state *p = &g_pause;
 	if (!p->on) {
-		if (cmdlist) {
-			kv_free(cmdlist);
-			cmdlist = NULL;
-		}
+		cl_free();
 		return;
 	}
+	ui_blend_reset();
+	/* paused: the hyper buttons are inactive */
+	if (p->a > 0)
+		ui_rect(0, 0, BW, 240, a8(p->a * 0.45f));
 	if (p->a_cmd <= 0)
 		return;
-	/* command list (move names; the PC also shows the inputs) */
-	ui_rect(0, 0, BW, 240, a8(p->a_cmd * 0.9f));
-	if (!cmdlist) {
-		char path[96];
-		snprintf(path, sizeof path, "romfs:/script/%s/commandlist_names.txt", lang_dir(strings_language()));
-		cmdlist = kv_load(path);
+	float a = p->a_cmd;
+	cl_load();
+	panel_backdrop(a); /* the buttons go away under the list */
+	/* header: MOVE LIST pill + the character's name */
+	pill_label(12, 0x97cbff, tr_id(0x110), a, BW);
+	char key[48];
+	snprintf(key, sizeof key, "CHARACTER_%s", sel_char_key(chara));
+	text_draw_shadowed(FONT_MENUBIG, tr(key), BW - 8, 13, TEXT_RIGHT, c2d(a8(a) | 0xffffff), 0.9f, 150);
+	cl_item items[40];
+	int n = cl_items(chara, items, 40);
+	float iw = 0;
+	for (int i = 0; i < n; i++)
+		if (items[i].kind == CI_MOVE && input_width(items[i].e) > iw)
+			iw = input_width(items[i].e);
+	cl_name_x = 6 + 10 + iw + 12;
+	/* scroll limit: the first item from which the rest fits the viewport */
+	int smax = n;
+	float acc = 0;
+	while (smax > 0 && acc + item_h(&items[smax - 1]) <= CL_BOTTOM - CL_TOP)
+		acc += item_h(&items[--smax]);
+	p->scroll_max = smax;
+	if (p->scroll > smax)
+		p->scroll = smax;
+	float y = CL_TOP;
+	for (int i = p->scroll; i < n && y + item_h(&items[i]) <= CL_BOTTOM + 0.5f; i++) {
+		draw_item(&items[i], y, a);
+		y += item_h(&items[i]);
 	}
-	pill_label(12, 0x97cbff, tr_id(0x110), p->a_cmd, BW);
-	if (!cmdlist)
-		return;
-	char pre[48];
-	snprintf(pre, sizeof pre, "COMMANDLIST_%s_", sel_char_key(chara));
-	size_t pl = strlen(pre);
-	float y = 34;
-	for (int i = 0; i < kv_count(cmdlist) && y < 196; i++) {
-		if (strncmp(kv_key_at(cmdlist, i), pre, pl))
-			continue;
-		text_draw(FONT_SYSTEM, kv_value_at(cmdlist, i), 12, y, TEXT_LEFT, c2d(a8(p->a_cmd) | 0xffffff), 1.0f, BW - 24);
-		y += 17;
+	/* scroll bar + arrows */
+	if (smax > 0) {
+		float tx = BW - 7, track = CL_BOTTOM - CL_TOP - 16;
+		ui_rect(tx, CL_TOP + 8, tx + 3, CL_BOTTOM - 8, a8(a * 0.5f) | 0x0a1024);
+		float th = track * (float)(n - smax) / (float)n, ty = CL_TOP + 8 + (track - th) * (float)p->scroll / (float)smax;
+		ui_rect(tx, ty, tx + 3, ty + th, a8(a) | 0x97cbff);
+		u32 up = c2d(a8(p->scroll > 0 ? a : a * 0.25f) | 0xffffff), dn = c2d(a8(p->scroll < smax ? a : a * 0.25f) | 0xffffff);
+		C2D_DrawTriangle(tx + 1.5f, CL_TOP, up, tx - 2, CL_TOP + 5, up, tx + 5, CL_TOP + 5, up, UI_DEPTH);
+		C2D_DrawTriangle(tx + 1.5f, CL_BOTTOM, dn, tx - 2, CL_BOTTOM - 5, dn, tx + 5, CL_BOTTOM - 5, dn, UI_DEPTH);
 	}
 }
 

@@ -5,11 +5,11 @@
  * multiplied by the tint alpha a, and alpha = a for PC blend 1 (alpha) or 0 for PC blend 2 (additive with alpha):
  *   blend 1: out = tex.rgb·tint·(tex.a·a) + dst·(1 − tex.a·a)    (= SRC_ALPHA, ONE_MINUS_SRC_ALPHA)
  *   blend 2: out = tex.rgb·tint·(tex.a·a) + dst                  (= SRC_ALPHA, ONE)
- * The fragment is texture × vertex colour (texenv 0); atlases packed premultiplied (aos2pack -pma) are used as is,
- * straight-alpha textures get rgb ×= tex.a in texenv 1. A texture or texenv change flushes; blend 1 ↔ 2 does not.
- * The other PC modes (0 opaque, 4 mul, 5 add, 6 screen, 7 invert) keep their own GPU blend state and get the raw
- * tint (exact on straight-alpha textures and solid draws; on premultiplied atlases texels with alpha < 1 lose
- * their colour in those modes: nothing in the game draws them, see PERF.md).
+ * The fragment is texture × vertex colour (texenv 0); straight-alpha textures (all match atlases since aos2pack
+ * -edge, PERF.md "Atlas bleed") get rgb ×= tex.a in texenv 1, which also zeroes whatever colour ETC1 left in
+ * transparent texels; pages packed premultiplied (aos2pack -pma) are used as is. A texture or texenv change
+ * flushes; blend 1 ↔ 2 does not. The other PC modes (0 opaque, 4 mul, 5 add, 6 screen, 7 invert) keep their own
+ * GPU blend state and get the raw tint (exact on straight-alpha textures and solid draws).
  *
  * Solid (untextured) primitives use a small white texture (a texture switch when they interleave with sprites;
  * a white clamp border on every atlas would avoid that, but Azahar samples parts of some VRAM atlases as
@@ -63,8 +63,8 @@ static inline void spr_state(C3D_Tex *t, bool premul, int pcblend)
 {
 	int cls = spr_class(pcblend);
 	if (!t) {
-		t = &spr_white;
-		premul = true;
+		t = &spr_white; /* opaque: texenv 0 and 1 give the same; 1 is the atlases' mode, so no texenv switch */
+		premul = false;
 	}
 	if (t != spr_tex_cur || cls != spr_cls_cur || premul != spr_premul_cur)
 		spr_state_change(t, premul, cls);

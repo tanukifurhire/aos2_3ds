@@ -920,6 +920,15 @@ int pause_update(const aos_world *w)
 			}
 		}
 	} else if (p->st == 200) {
+		/* port: the bottom-screen list scrolls (select_draw.c pause_draw_bottom) */
+		if (min_pressed(MI_UP) && p->scroll > 0) {
+			p->scroll--;
+			SE(2);
+		}
+		if (min_pressed(MI_DOWN) && p->scroll < p->scroll_max) {
+			p->scroll++;
+			SE(2);
+		}
 		if (min_confirm() || min_cancel()) {
 			SE(1);
 			announce_hide();
@@ -950,6 +959,7 @@ int pause_update(const aos_world *w)
 			case 1:
 				SE(0);
 				p->st = 200;
+				p->scroll = 0;
 				keep = true;
 				announce_show(0x66); /* ANNOUNCE_PAUSE_COMMANDLIST_VIEWING */
 				break;

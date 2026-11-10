@@ -37,6 +37,8 @@ const pageBudget = maxTex * maxTex * 85 / 100
 type frame struct {
 	name      string // file name without extension
 	pma       bool   // -pma: RGB premultiplied by the stored (4-bit) alpha (8th .idx field = 1)
+	edge      bool   // -edge: straight alpha, colour dilated into transparent texels, 1px extruded border (9th .idx field = 1)
+	bw, bh    int    // staged image size incl. the border (= w, h without -edge)
 	big       bool   // keeps a -fscale frame override (own pages with -vfxpages)
 	src, dst  string
 	w, h      int // scaled size
@@ -54,6 +56,8 @@ func main() {
 	mip := flag.Bool("mip", true, "mipmap the character atlases (mipmapped())")
 	nomip := flag.String("nomip", "", "with -mip: comma-separated folder patterns (* = prefix) packed without mipmaps")
 	pma := flag.String("pma", "", "comma-separated folder patterns (* = prefix) whose atlases are stored premultiplied (render.c sprbatch)")
+	edge := flag.String("edge", "", "comma-separated folder patterns (* = prefix) packed bleed-free (edgeImage): straight alpha with the colour "+
+		"dilated into transparent texels and a 1px extruded border around every frame; no mipmaps; overrides -pma")
 	vfxPages := flag.Bool("vfxpages", false, "frames with a -fscale frame override go to their own pages (the large beams)")
 	exclude := flag.String("exclude", "", "comma-separated folder/name patterns (as -fscale frame keys) left out of the atlases")
 	bgmTable := flag.String("bgm", "", "docs/re/bgm_table.tsv: copy BGM to romfs:/bgm/<id>.ogg (empty = skip)")
@@ -82,6 +86,7 @@ func main() {
 		}
 	}
 	opt.pma = splitList(*pma)
+	opt.edge = splitList(*edge)
 	opt.nomip = splitList(*nomip)
 	opt.vfxPages = *vfxPages
 	opt.exclude = splitList(*exclude)
@@ -134,6 +139,7 @@ var opt struct {
 	mip      bool
 	scales   map[string]float64
 	pma      []string
+	edge     []string
 	nomip    []string
 	vfxPages bool
 	exclude  []string
@@ -228,7 +234,8 @@ func packFolder(dir, folder, gfx, romfs string, scale float64) (int, int, error)
 		}
 		_, big := frameOverride(folder, name, scale)
 		frames = append(frames, &frame{
-			pma:  matchAny(opt.pma, folder),
+			pma:  matchAny(opt.pma, folder) && !matchAny(opt.edge, folder),
+			edge: matchAny(opt.edge, folder),
 			big:  big && opt.vfxPages,
 			name: name,
 			src:  filepath.Join(dir, e.Name()),
@@ -264,7 +271,7 @@ func packFolder(dir, folder, gfx, romfs string, scale float64) (int, int, error)
 	// Partition into pages: largest first, first-fit by area budget; with -vfxpages the frames that keep a
 	// higher scale (-fscale frame overrides: the large beams) get their own pages after the others.
 	sorted := append([]*frame(nil), frames...)
-	sort.SliceStable(sorted, func(i, j int) bool { return sorted[i].w*sorted[i].h > sorted[j].w*sorted[j].h })
+	sort.SliceStable(sorted, func(i, j int) bool { return sorted[i].bw*sorted[i].bh > sorted[j].bw*sorted[j].bh })
 	var used []int
 	var members [][]*frame
 	for _, group := range []bool{false, true} {
@@ -273,7 +280,7 @@ func packFolder(dir, folder, gfx, romfs string, scale float64) (int, int, error)
 			if fr.big != group {
 				continue
 			}
-			a := fr.w * fr.h
+			a := fr.bw * fr.bh
 			p := -1
 			for i := first; i < len(used); i++ {
 				if used[i]+a <= pageBudget {
@@ -310,7 +317,7 @@ func packFolder(dir, folder, gfx, romfs string, scale float64) (int, int, error)
 		if mipmapped(folder) && opt.mip && !matchAny(opt.nomip, folder) {
 			// tex3ds' (ImageMagick) box filter weights colour by alpha: correct for straight alpha only,
 			// so premultiplied folders get no mipmaps (render.c draws them unmipmapped anyway)
-			if !matchAny(opt.pma, folder) {
+			if !matchAny(opt.pma, folder) && !matchAny(opt.edge, folder) {
 				opts = "--atlas --mipmap box -f " + f + " -q medium -z auto"
 			}
 		}
@@ -322,7 +329,9 @@ func packFolder(dir, folder, gfx, romfs string, scale float64) (int, int, error)
 	sort.Slice(frames, func(i, j int) bool { return frames[i].name < frames[j].name })
 	var idx strings.Builder
 	for _, fr := range frames {
-		if fr.pma {
+		if fr.edge { // 8th field (premultiplied) 0, 9th = 1: the sub-texture has a 1px border (spritebank.c)
+			fmt.Fprintf(&idx, "%s %d %d %d %d %d %d 0 1\n", fr.name, fr.page, fr.idx, fr.w, fr.h, fr.ow, fr.oh)
+		} else if fr.pma {
 			fmt.Fprintf(&idx, "%s %d %d %d %d %d %d 1\n", fr.name, fr.page, fr.idx, fr.w, fr.h, fr.ow, fr.oh)
 		} else {
 			fmt.Fprintf(&idx, "%s %d %d %d %d %d %d\n", fr.name, fr.page, fr.idx, fr.w, fr.h, fr.ow, fr.oh)
@@ -376,8 +385,20 @@ func scalePNG(fr *frame, s float64) error {
 		h = 1
 	}
 	fr.w, fr.h = w, h
+	fr.bw, fr.bh = w, h
+	form := fmt.Sprint(fr.pma)
+	if fr.edge {
+		// Frames of 32+ texels keep their footprint, so power-of-two frames still pack edge to edge and no page
+		// grows: the image is resampled to (w-2)x(h-2) inside its border. Smaller ones grow by the border.
+		if w >= 32 && h >= 32 {
+			fr.w, fr.h = w-2, h-2
+		} else {
+			fr.bw, fr.bh = w+2, h+2
+		}
+		form = "edge"
+	}
 	// the staged PNG is reused while it is newer than the source and was made with the same size and form
-	stamp := fr.dst + fmt.Sprintf(".%dx%d.%v", w, h, fr.pma)
+	stamp := fr.dst + fmt.Sprintf(".%dx%d.%s", fr.bw, fr.bh, form)
 	if st, err := os.Stat(fr.dst); err == nil {
 		if si, err2 := os.Stat(fr.src); err2 == nil && st.ModTime().After(si.ModTime()) {
 			if _, err3 := os.Stat(stamp); err3 == nil {
@@ -385,10 +406,12 @@ func scalePNG(fr *frame, s float64) error {
 			}
 		}
 	}
-	dst := image.NewRGBA(image.Rect(0, 0, w, h))
+	dst := image.NewRGBA(image.Rect(0, 0, fr.w, fr.h))
 	draw.CatmullRom.Scale(dst, dst.Bounds(), img, b, draw.Src, nil)
 	var out image.Image = dst
-	if fr.pma {
+	if fr.edge {
+		out = edgeImage(dst)
+	} else if fr.pma {
 		// Premultiplied by the alpha the GPU will see: tex3ds stores ETC1A4 alpha as a>>4 (quantum_to_bits<4>),
 		// sampled as (a>>4)*17. image.RGBA holds colour*a/255 (Go's premultiplied form): rescale to
 		// colour*q/255. Written as NRGBA so the PNG keeps these bytes as they are.
@@ -424,6 +447,91 @@ func scalePNG(fr *frame, s float64) error {
 		os.Remove(f)
 	}
 	return os.WriteFile(stamp, nil, 0o644)
+}
+
+// edgeImage turns a scaled (Go-premultiplied) frame into the -edge form: straight alpha whose colour is defined
+// everywhere, plus a 1px border that repeats the outermost texels (docs/PERF.md "Atlas bleed").
+//
+// ETC1 codes colour per 4x4 block independently of the separate 4-bit alpha, so in premultiplied pages a
+// transparent texel next to bright ones decodes to a non-zero colour that the (ONE, ONE_MINUS_SRC_ALPHA) blend adds
+// to the screen (fringes), and texels with a < 1 can decode brighter than their alpha. Straight alpha multiplied by
+// the sampled alpha in the texture combiner (sprbatch.c texenv 1) zeroes both. The colour of transparent texels is
+// dilated from the nearest visible ones, so bilinear filtering (colour and alpha filtered separately, then
+// multiplied) has no dark edges and the ETC1 blocks stay smooth. The border keeps the filter, and the PICA's
+// imprecise texture coordinates on hardware, inside the frame's own texels: atlas neighbours are packed edge to edge.
+func edgeImage(src *image.RGBA) *image.NRGBA {
+	w, h := src.Bounds().Dx(), src.Bounds().Dy()
+	n := w * h
+	col := make([][3]uint32, n)
+	known := make([]bool, n)
+	alpha := make([]uint8, n)
+	for i := 0; i < n; i++ {
+		a := uint32(src.Pix[i*4+3])
+		alpha[i] = uint8(a)
+		if a>>4 == 0 { // tex3ds stores a>>4: invisible on the GPU, colour free
+			continue
+		}
+		for c := 0; c < 3; c++ {
+			v := (uint32(src.Pix[i*4+c])*255 + a/2) / a
+			if v > 255 {
+				v = 255
+			}
+			col[i][c] = v
+		}
+		known[i] = true
+	}
+	// dilate: each pass gives the unknown texels next to known ones the mean of those neighbours
+	for {
+		var next []int
+		var vals [][3]uint32
+		for y := 0; y < h; y++ {
+			for x := 0; x < w; x++ {
+				i := y*w + x
+				if known[i] {
+					continue
+				}
+				var s [3]uint32
+				k := uint32(0)
+				for dy := -1; dy <= 1; dy++ {
+					for dx := -1; dx <= 1; dx++ {
+						xx, yy := x+dx, y+dy
+						if xx < 0 || yy < 0 || xx >= w || yy >= h || !known[yy*w+xx] {
+							continue
+						}
+						j := yy*w + xx
+						s[0] += col[j][0]
+						s[1] += col[j][1]
+						s[2] += col[j][2]
+						k++
+					}
+				}
+				if k > 0 {
+					next = append(next, i)
+					vals = append(vals, [3]uint32{(s[0] + k/2) / k, (s[1] + k/2) / k, (s[2] + k/2) / k})
+				}
+			}
+		}
+		if len(next) == 0 {
+			break // all known, or nothing visible at all (stays black)
+		}
+		for k, i := range next {
+			col[i] = vals[k]
+			known[i] = true
+		}
+	}
+	out := image.NewNRGBA(image.Rect(0, 0, w+2, h+2))
+	for y := 0; y < h+2; y++ {
+		sy := min(max(y-1, 0), h-1)
+		for x := 0; x < w+2; x++ {
+			i := sy*w + min(max(x-1, 0), w-1)
+			o := (y*(w+2) + x) * 4
+			out.Pix[o] = uint8(col[i][0])
+			out.Pix[o+1] = uint8(col[i][1])
+			out.Pix[o+2] = uint8(col[i][2])
+			out.Pix[o+3] = alpha[i]
+		}
+	}
+	return out
 }
 
 func copySounds(assets, romfs string) error {

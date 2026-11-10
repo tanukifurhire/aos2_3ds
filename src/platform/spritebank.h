@@ -12,7 +12,9 @@ typedef struct {
 	u16 w, h;   /* atlas (scaled) size */
 	u16 ow, oh; /* original PC texture size — draw at ow/w scale to get PC units */
 	u8 premul;  /* .idx 8th field = 1: the page's RGB is premultiplied by its alpha (aos2pack -pma); the 2D
-	             * batcher (sprbatch.h) draws straight-alpha pages premultiplied in the texture combiner */
+	             * batcher (sprbatch.h) draws straight-alpha pages premultiplied in the texture combiner.
+	             * .idx 9th field = 1 (aos2pack -edge): the atlas image has a 1px border that repeats its edge
+	             * texels; img.subtex is the rect inside it (spritebank.c) */
 } aos_frame;
 
 /* Loads a folder (idempotent). Returns false if its index can't be read. */
@@ -27,11 +29,14 @@ const aos_frame *spritebank_get(const char *name);
 const aos_frame *spritebank_get_in(const char *folder, const char *name);
 void spritebank_exit(void);
 
-/* Atlas pages are sampled bilinearly and their images are packed edge to edge
- * (no padding: a 1px border would cost ~0.5 MB per character atlas and break
- * the power-of-two packing). Clamp a (possibly cropped) sub-rectangle `s` of
- * the frame `full` to the frame's texel centres, so the filter never reaches
- * a neighbouring image: the same edge-clamp the PC gets from separate textures. */
+/* Atlas pages are sampled bilinearly and their images are packed edge to edge.
+ * Clamp a (possibly cropped) sub-rectangle `s` of the frame `full` to the
+ * frame's texel centres, so the filter never reaches a neighbouring image: the
+ * same edge-clamp the PC gets from separate textures. The clamp alone leaves no
+ * margin for the PICA's fixed-point texture coordinates / filter weights (thin
+ * lines along sprite edges were reported on a real Old 3DS), so the match
+ * atlases also give every frame a 1px border that repeats its edge texels
+ * (aos2pack -edge, PERF.md "Atlas bleed"). */
 static inline float spritebank_clampf(float v, float lo, float hi) /* plain compares: ARMv6 VFP has no min/max */
 {
 	return v < lo ? lo : v > hi ? hi : v;

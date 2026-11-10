@@ -180,10 +180,7 @@ int main(int argc, char **argv)
 		hud_camera cam = {W.obj.camX, W.obj.camY, Z / sc.s};
 		fprintf(out, "#hud %d %d %d p1 %d %d p2 %d %d\n", f, scrW, scrH, W.p[0].id, W.p[0].color, W.p[1].id,
 		        W.p[1].color);
-		if (strstr(setup, "panel"))
-			hud_panel_draw(&W, scrW, scrH); /* 3DS bottom-screen panel (use W,H = 320,240) */
-		else
-			hud_draw(&W, &sc, &cam);
+		hud_draw(&W, &sc, &cam);
 	}
 	fclose(out);
 	return 0;

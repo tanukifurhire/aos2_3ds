@@ -418,8 +418,9 @@ void menu_logic_update(void) /* FUN_00643150 */
 		}
 		break;
 	case MS_MAIN:
-		if (right() || left()) {
-			int d = right() ? 1 : -1;
+		/* PC: left/right only. Port: up/down too (the bottom-screen item list is vertical) */
+		if (right() || left() || up() || down()) {
+			int d = right() || down() ? 1 : -1;
 			m->cursor = wrap(m->cursor + d, ITEM_COUNT);
 			m->kick = (float)d;
 			se(2);

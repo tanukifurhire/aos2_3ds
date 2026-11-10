@@ -4,20 +4,23 @@ Original notation: **A** = Attack (Weapon A), **B** = Sub-weapon (Weapon B), **S
 **D** = Dash (held), **H** = Hyper. `(Hold)` = hold the button to charge.
 15 playable characters; texture folders `charaXxxA/B/C` are colour variants of the same character.
 
-## 3DS translation (user mapping, see aos_input.h)
+## 3DS translation (user mapping, see aos_input.h, hyper_touch.h; revised 2026-11-10)
 
 | Original | 3DS |
 |---|---|
 | A / B | A / B |
 | S+A / S+B | X / Y |
-| D+A, D+B, D+H … | hold L (Dash) + button |
-| H | R |
-| A+H / B+H | R + A / R + B (A or B held when R resolves, or pressed during the chord window) |
-| S+H | R + X |
-| S+B+H (Accel Hyper) | R + Y |
-| S (Hold) | hold X or Y (whichever was pressed first) without A/B — **open question for the user** |
-| Shield | L + R together |
+| D+A, D+S+A … | hold L (Dash) + button |
+| H / A+H | touch: left button |
+| B+H | touch: right button |
+| S+H | touch: top button (Iru: hold L for the dash version) |
+| D+H | touch: bottom button |
+| S+B+H (Accel Hyper) | touch: centre button |
+| Shield | R (or L + R together) |
 | Hyper Dash | L, L |
+
+The bottom screen shows the five buttons with the move names (commandlist_names.txt), their cost and the
+hyper gauge; the pause menu's Move list draws the same mapping as button glyphs (select_draw.c).
 
 ★/☆ = only available while a stated condition holds (noted per character).
 

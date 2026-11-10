@@ -7,6 +7,10 @@ mkdir -p build/tests
 "$ZIG" cc -std=c99 -Wall -Wextra -Werror -O2 -fsanitize=undefined -fno-sanitize-recover=all \
   src/input/aos_input.c tests/test_input.c -o build/tests/test_input.exe
 build/tests/test_input.exe
+# touch hyper buttons -> input masks, every slot of every character through the real dispatch (hyper_touch.h)
+"$ZIG" cc -std=gnu11 -Wall -Wextra -Werror -O1 -g -fsanitize=undefined -fno-sanitize-recover=all \
+  src/sim/*.c src/sim/chars/*.c src/input/hyper_touch.c tests/test_hyper_touch.c -lm -o build/tests/test_hyper_touch.exe
+build/tests/test_hyper_touch.exe
 "$ZIG" cc -std=c99 -Wall -Wextra -Werror -O1 -g -fsanitize=undefined -fno-sanitize-recover=all \
   src/app/wav.c tests/test_wav.c -o build/tests/test_wav.exe
 build/tests/test_wav.exe

@@ -12,6 +12,8 @@
 typedef struct {
 	char name[NAME_LEN];
 	aos_frame f;
+	u8 border;               /* .idx 9th field: the atlas image has a 1px extruded border (aos2pack -edge) */
+	Tex3DS_SubTexture inner; /* then f.img.subtex points here: the frame without its border */
 } entry;
 
 /* One atlas page. Folders that stay loaded for the whole session (the common
@@ -149,11 +151,11 @@ static bool load_folder(const char *folder, bool try_vram)
 	int cap = 128, n = 0;
 	entry *es = malloc(sizeof *es * (size_t)cap);
 	char name[NAME_LEN], line[128];
-	int page, idx, w, h, ow, oh, premul, maxpage = -1;
+	int page, idx, w, h, ow, oh, premul, border, maxpage = -1;
 	bool ok = es != NULL;
 	while (ok && fgets(line, sizeof line, f)) {
-		premul = 0;
-		if (sscanf(line, "%31s %d %d %d %d %d %d %d", name, &page, &idx, &w, &h, &ow, &oh, &premul) < 7)
+		premul = border = 0;
+		if (sscanf(line, "%31s %d %d %d %d %d %d %d %d", name, &page, &idx, &w, &h, &ow, &oh, &premul, &border) < 7)
 			continue;
 		if (page < 0 || page >= MAX_PAGES || idx < 0) {
 			ok = false;
@@ -175,6 +177,7 @@ static bool load_folder(const char *folder, bool try_vram)
 		es[n].f.ow = (u16)ow;
 		es[n].f.oh = (u16)oh;
 		es[n].f.premul = (u8)(premul != 0);
+		es[n].border = (u8)(border != 0);
 		/* stash page/idx in img fields until the sheets are loaded */
 		es[n].f.img.tex = NULL;
 		es[n].f.img.subtex = (const Tex3DS_SubTexture *)(uintptr_t)((page << 16) | idx);
@@ -207,6 +210,28 @@ static bool load_folder(const char *folder, bool try_vram)
 			return false;
 		}
 		es[i].f.img = page_image(fo->pages[pg], (size_t)ix);
+		if (es[i].border) {
+			/* inset by one texel on every side, in texture space (each field moves towards the other one of its pair;
+			 * rotated frames swap the axes); spritebank_clamp_sub then keeps samples within half a texel of this
+			 * rect, i.e. inside the border, which repeats the frame's edge texels */
+			Tex3DS_SubTexture *in = &es[i].inner;
+			const C3D_Tex *t = es[i].f.img.tex;
+			*in = *es[i].f.img.subtex;
+			float du = 1.0f / t->width, dv = 1.0f / t->height;
+			if (in->top < in->bottom) { /* rotated: left/right run along v, top/bottom along u */
+				float k = du;
+				du = dv;
+				dv = k;
+			}
+			float su = in->left < in->right ? du : -du, sv = in->top < in->bottom ? dv : -dv;
+			in->left += su;
+			in->right -= su;
+			in->top += sv;
+			in->bottom -= sv;
+			in->width = (u16)(in->width - 2);
+			in->height = (u16)(in->height - 2);
+			es[i].f.img.subtex = in;
+		}
 	}
 	return true;
 }

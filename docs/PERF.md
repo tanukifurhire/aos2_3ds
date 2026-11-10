@@ -314,6 +314,7 @@ frees 8.5-14 MB of linear memory and puts every sprite atlas of a match in VRAM.
    (`hg_tri2` / `hg_tri_tex2`, the same triangles; ring points computed once per frame). `tests/run_hudpreview.sh`
    is pixel-identical before/after. HUD 2.3-2.8 → 1.1-1.4 ms.
 5. **Bottom panel** (`panel.c`): background, separators and the status lines (system font) render into a 512×256
+   (Superseded: the panel is now touch Hyper buttons; its cache texture lives in VRAM, allocated at match start, ~0-37 µs/frame.)
    RGB565 texture only when a line changes; the counters are drawn over it each frame. A battle frame skips the bottom
    screen entirely (no clear, draw or transfer: scene_def `bottom_same`, scene.c) when the panel would draw the same
    primitives (hash of the counters' primitive stream + lines) and no fade / announce band / pause is up. With pinned
@@ -365,3 +366,29 @@ Tsih stretches. Sumika ×2 9-12 ms, Sumika 2nd ×2 9.5-12.5, Nanako ×2 on Capit
 Tsih ×2 on Dust Storm 15-20 (stage 4.2 ms) — the stage draw is now the item to look at on those stages. GPU: all
 sprite sampling from VRAM with a ¼ texel footprint; fill unchanged (1.7-2.5 Mpx peaks ≈ 5-12 ms of GPU, overlapped
 with the CPU's next frame). Only hardware can confirm.
+
+## Atlas bleed (2026-11-10, after the first real Old 3DS test)
+Reported on hardware: thin lines / fringes along sprite edges that should be transparent. Two causes, both in the
+-pma atlases (decoded with a Python ETC1A4 decoder from the .t3x, not tex3ds' preview PNG, which hides the second):
+1. **Atlas neighbours.** Frames are packed edge to edge; `spritebank_clamp_sub` clamps texture coordinates to the
+   frame's edge texel centres, which leaves zero margin. With a texture-coordinate error of e texels (the PICA's
+   fixed-point coordinates / filter weights; the emulator samples in float and shows nothing) the neighbour leaks in
+   at e × its colour: over 10 match pages, 760 of 2352 frame sides change by >= 8/255 already at e = 1/8 (worst
+   32/255; 64/255 at e = 1/4) — a thin bright or dark line along the quad edge.
+2. **ETC1 colour under alpha 0.** ETC1 codes colour per 4x4 block independently of the 4-bit alpha, so in a
+   premultiplied page transparent texels next to bright ones decode to colour up to 73/255, which the (ONE,
+   ONE_MINUS_SRC_ALPHA) blend adds to the screen (1385 such texels > 8/255 in 7 pages), and 4541 texels with
+   a < 1 decode brighter than their alpha.
+
+Fix (aos2pack `-edge`, used for every folder that was `-pma`): straight alpha, the colour of invisible texels
+dilated from the nearest visible ones (smooth ETC1 blocks, no dark bilinear edges), premultiplied in the texture
+combiner (sprbatch texenv 1: transparent texels give exactly 0); every frame gets a 1px border repeating its edge
+texels (.idx 9th field; spritebank.c insets the sub-texture by one texel). Frames of 32+ texels are resampled to
+(w-2)x(h-2) inside the border so the power-of-two frames still pack edge to edge: atlas sizes unchanged except
+particleMdl 128x128 -> 128x256 (+16 KB VRAM; its 8/16-texel frames grow by the border instead). Same metrics
+after: 0 frame sides with bleed at any e < 1, no colour under alpha 0 reaches the screen. Emulator captures of
+the same match frames differ by 0.35-2.0 mean |diff| (the 2-texel resample; the shield bubble accounts for the
+rest).
+
+Also found: the barrier bubble (shield, burst shield, hyper/accel barriers: charaCmnA shield00-03,
+FUN_006b2200) was never ported; now drawn in `aos_draw_world` right after the players.

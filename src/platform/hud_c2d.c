@@ -387,23 +387,3 @@ void hud_c2d_draw(const aos_world *w, int W, int H, float camX, float camY, floa
 	spr_depth(DEPTH);
 	hud_draw(w, &sc, &cam);
 }
-
-/* Inside a batch pass on the bottom panel's target (panel.c). */
-void hud_c2d_panel(const aos_world *w, int W, int H)
-{
-	spr_depth(DEPTH);
-	hud_panel_draw(w, W, H);
-}
-
-/* Hash of everything hud_c2d_panel would draw (its primitives with their arguments and the portrait textures),
- * no GPU work: the bottom screen is skipped while it does not change (panel.c). */
-uint32_t hud_c2d_panel_hash(const aos_world *w, int W, int H)
-{
-	rec = true;
-	rec_h = 2166136261u;
-	for (int i = 0; i < 2; i++)
-		rec_mix(&tex[HT_PORTRAIT0 + i].img, sizeof tex[0].img);
-	hud_panel_draw(w, W, H);
-	rec = false;
-	return rec_h;
-}

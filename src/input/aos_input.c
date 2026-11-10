@@ -49,13 +49,6 @@ static uint32_t resolve_l(aos_input *s)
 	return AOS_EV_DASH;
 }
 
-static uint32_t resolve_r(aos_input *s)
-{
-	s->r.pending = 0;
-	s->r.resolution = AOS_RES_HYPER;
-	return AOS_EV_HYPER;
-}
-
 aos_input_out aos_input_update(aos_input *s, uint32_t raw)
 {
 	aos_input_out o = {0, 0};
@@ -65,9 +58,9 @@ aos_input_out aos_input_update(aos_input *s, uint32_t raw)
 	s->l.held = (raw & AOS_RAW_L) != 0;
 	s->r.held = (raw & AOS_RAW_R) != 0;
 
-	/* Age presses that were already pending before this frame. */
-	if (s->l.pending && s->l.age < 0xff) s->l.age++;
-	if (s->r.pending && s->r.age < 0xff) s->r.age++;
+	/* Age the presses made before this frame. */
+	if (s->l.age < 0xff) s->l.age++;
+	if (s->r.age < 0xff) s->r.age++;
 	if (s->frames_since_l_press < 0xff) s->frames_since_l_press++;
 
 	if (rise & AOS_RAW_L) {
@@ -75,36 +68,41 @@ aos_input_out aos_input_update(aos_input *s, uint32_t raw)
 		s->l_press_gap = s->frames_since_l_press;
 		s->frames_since_l_press = 0;
 	}
-	if (rise & AOS_RAW_R) press(&s->r);
-
-	/* Shield: both presses unresolved, both still held. Pending presses are
-	 * never older than chord_window, so the two presses are within it. */
-	if (s->l.pending && s->r.pending && s->l.held && s->r.held) {
-		s->l.pending = s->r.pending = 0;
-		s->l.resolution = s->r.resolution = AOS_RES_SHIELD;
-		s->double_tap_armed = 0;
+	/* R = Shield, resolved on the press frame. A pending L press (still held) joins it: L+R is one Shield, no
+	 * Dash. Pending presses are never older than chord_window, so the two presses are within it. */
+	if (rise & AOS_RAW_R) {
+		s->r.pending = 0;
+		s->r.age = 0;
+		s->r.resolution = AOS_RES_SHIELD;
 		o.events |= AOS_EV_SHIELD;
+		if (s->l.pending && s->l.held) {
+			s->l.pending = 0;
+			s->l.resolution = AOS_RES_SHIELD;
+			s->double_tap_armed = 0;
+		}
+	}
+	/* L pressed shortly after R (R still held from that press): part of the same L+R Shield. */
+	if ((rise & AOS_RAW_L) && s->r.held && s->r.resolution == AOS_RES_SHIELD && s->r.age <= s->cfg.chord_window &&
+	    !(rise & AOS_RAW_R)) {
+		s->l.pending = 0;
+		s->l.resolution = AOS_RES_SHIELD;
+		s->double_tap_armed = 0;
 	}
 
-	/* Lone presses resolve when the window closes or the button is let go. */
+	/* A lone L press resolves when the window closes or the button is let go. */
 	if (s->l.pending && (!s->l.held || s->l.age >= s->cfg.chord_window))
 		o.events |= resolve_l(s);
-	if (s->r.pending && (!s->r.held || s->r.age >= s->cfg.chord_window))
-		o.events |= resolve_r(s);
 
-	/* Held states. A press keeps its resolution until released, so letting go
-	 * of one shield bumper never turns the other into Dash/Hyper. */
-	if (s->l.held && s->r.held &&
-	    s->l.resolution == AOS_RES_SHIELD && s->r.resolution == AOS_RES_SHIELD)
+	/* Held states. A press keeps its resolution until released: letting go of R never turns the L of an L+R
+	 * Shield into a Dash. Shield is held while R is (alone or with L). */
+	if (s->r.held && s->r.resolution == AOS_RES_SHIELD)
 		o.held |= AOS_HELD_SHIELD;
 	if (s->l.held && s->l.resolution == AOS_RES_DASH)
 		o.held |= AOS_HELD_DASH;
 	if (s->l.held && s->l.resolution == AOS_RES_HYPER_DASH)
 		o.held |= AOS_HELD_DASH | AOS_HELD_HYPER_DASH;
-	if (s->r.held && s->r.resolution == AOS_RES_HYPER)
-		o.held |= AOS_HELD_HYPER;
 	if (!s->l.held && !s->l.pending) s->l.resolution = AOS_RES_NONE;
-	if (!s->r.held && !s->r.pending) s->r.resolution = AOS_RES_NONE;
+	if (!s->r.held) s->r.resolution = AOS_RES_NONE;
 
 	/* Face buttons: no ambiguity, no delay. */
 	if (rise & AOS_RAW_A) o.events |= AOS_EV_WEAPON_A;

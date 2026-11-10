@@ -56,6 +56,28 @@ void aos_draw_line(float x0, float y0, float x1, float y1, float width, uint32_t
 	c->blend = (uint8_t)blend;
 }
 
+/* Barrier bubbles (FUN_006b2200, right after the players): charaCmnA shield01 (alpha, blend 1) then
+ * shield00 (additive, blend 2); burst/type-5 barriers use shield03 + shield02. Models are 320x320
+ * quads (FUN_006adab0, DAT_008178c0) scaled by R / 160 (DAT_00814168) * barrierScale, rotated by the
+ * random barrierRot, white, drawn while barrierTime != 0 and the player is hittable (+0xa2). */
+static void barriers_draw(aos_world *w)
+{
+	for (int i = 0; i < 2; i++) {
+		const aos_player *p = &w->p[i];
+		if (p->barrierTime == 0 || !p->hittable)
+			continue;
+		int m = (p->barrierType == 2 || p->barrierType == 5) ? 3 : 1;
+		float s = p->barrierR / 160.0f * p->barrierScale;
+		for (int k = 0; k < 2; k++) {
+			aos_dcmd *c = aos_draw(aos_texf("shield%02d", m - k), AOS_BANK_COMMON, p->x, p->y, 0);
+			c->halfW = c->halfH = 160.0f;
+			c->sx = c->sy = s;
+			c->rotZ = aos_rad2bam(p->barrierRot);
+			c->blend = k == 0 ? AOS_BLEND_ALPHA : AOS_BLEND_ADD_ALPHA;
+		}
+	}
+}
+
 void aos_draw_world(aos_world *w)
 {
 	aos_objects *o = &w->obj;
@@ -73,6 +95,7 @@ void aos_draw_world(aos_world *w)
 				aos_otab.enemyDraw[o->enemy[i].type](w, &o->enemy[i]);
 	aos_afterimages_draw(w); /* Blur list FUN_004d7bc0, before players */
 	aos_draw_players(w);
+	barriers_draw(w);
 	for (int i = 0; i < o->nenemy; i++)
 		if (o->enemy[i].drawLayer == 2 && aos_otab.enemyDraw[o->enemy[i].type])
 			aos_otab.enemyDraw[o->enemy[i].type](w, &o->enemy[i]);
