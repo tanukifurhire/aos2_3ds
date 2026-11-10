@@ -10,6 +10,7 @@ nul
 /tools/zig/
 /tools/ghidra/
 /tools/azahar/
+/tools/ctrtools/
 
 # Reverse-engineering workspace: Ghidra project and the decompiled corpus of
 # aos2.exe are derived from the game binary; keep them local
