@@ -8,10 +8,8 @@ ROOT=$(pwd)
 # Game install: $GAME, else the path in game_path.txt (untracked), else ../Acceleration of SUGURI 2
 if [ -z "${GAME:-}" ] && [ -f "$ROOT/game_path.txt" ]; then GAME=$(head -n1 "$ROOT/game_path.txt" | tr -d '\015'); fi
 GAME=${GAME:-"$ROOT/../Acceleration of SUGURI 2"}
-export DEVKITPRO="$ROOT/tools/devkitpro/opt/devkitpro"
-export DEVKITARM="$DEVKITPRO/devkitARM"
+. "$ROOT/tools/devkitpro_env.sh" # DEVKITPRO, DEVKITARM, TOOLS (fresh clone: run ./tools/setup.sh first)
 CC="$DEVKITARM/bin/arm-none-eabi-gcc"
-TOOLS="$DEVKITPRO/tools/bin"
 OUT="${AOS_OUT:-$ROOT/build}" # AOS_OUT: private output dir (parallel builds); default build/
 mkdir -p "$OUT/obj"
 

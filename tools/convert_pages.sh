@@ -3,7 +3,9 @@
 # with tex3ds, 8 in parallel. Skips pages whose .t3x is newer than the .t3s.
 set -eu
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-TEX3DS="$ROOT/tools/devkitpro/opt/devkitpro/tools/bin/tex3ds.exe"
+. "$ROOT/tools/devkitpro_env.sh" # fresh clone: run ./tools/setup.sh first
+TEX3DS="$TOOLS/tex3ds.exe"
+[ -x "$TEX3DS" ] || TEX3DS="$TOOLS/tex3ds"
 BOUT="${AOS_OUT:-$ROOT/build}"
 OUT="$BOUT/romfs/gfx"
 mkdir -p "$OUT"

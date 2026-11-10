@@ -12,7 +12,8 @@ rm -rf "$V"; mkdir -p "$V/gfx" "$V/romfs"
 (cd tools/aos2pack && go build -o aos2pack.exe .)
 tools/aos2pack/aos2pack.exe -assets "$ROOT/extracted" -out "$V/romfs" -gfx "$V/gfx" -only "$ONLY" "$@" >/dev/null
 rm -rf "$V/romfs/se"
-TEX3DS="$ROOT/tools/devkitpro/opt/devkitpro/tools/bin/tex3ds.exe"
+. "$ROOT/tools/devkitpro_env.sh"
+TEX3DS="$TOOLS/tex3ds.exe"
 export TEX3DS V
 find "$V/gfx" -name 'page*.t3s' -print0 | xargs -0 -P 8 -n 1 sh -c '
 	t3s=$1; dir=$(dirname "$t3s"); folder=$(basename "$dir"); page=$(basename "$t3s" .t3s)
