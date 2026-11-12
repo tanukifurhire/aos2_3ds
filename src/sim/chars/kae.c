@@ -966,7 +966,8 @@ static void dr_ko(aos_world *w, aos_player *p) /* 0x1ac T1 FUN_006e2f80 */
 	int f = pp(p->timer, 3);
 	if (w->frame % 2 == 0) /* DAT_008858f8 */
 		f += 3;
-	dr_aim(w, p, "ke_los%02d", f);
+	if (p->timer < 100) /* drawn only before the KO explosion (t == 100) */
+		dr_aim(w, p, "ke_los%02d", f);
 }
 
 static void dr_hit(aos_world *w, aos_player *p) { dr_aim(w, p, "ke_los%02d", pp(p->timer, 3)); } /* 0x1ad T1 FUN_006e29f0 */

@@ -611,7 +611,8 @@ static void dr_dash(aos_world *w, aos_player *p) /* 0x129 T1 FUN_0075bf40 */
 
 static void dr_ko(aos_world *w, aos_player *p) /* 0x12a T1 FUN_0075c8c0 */
 {
-	aim_quad(w, p, "sg_los%02d", pingpong(p->timer, 3) + (w->frame % 2 == 0 ? 3 : 0), 96.0f);
+	if (p->timer < 100) /* drawn only before the KO explosion (t == 100) */
+		aim_quad(w, p, "sg_los%02d", pingpong(p->timer, 3) + (w->frame % 2 == 0 ? 3 : 0), 96.0f);
 }
 
 static void dr_hit(aos_world *w, aos_player *p) /* 0x12b T1 FUN_0075c360 */
