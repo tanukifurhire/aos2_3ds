@@ -1,3 +1,4 @@
+#define _GNU_SOURCE /* sincosf */
 #include "render.h"
 
 #include <math.h>
@@ -145,23 +146,33 @@ static void draw_cmd(const aos_dcmd *c, float camX, float camY, float zoomDiv)
 		}
 		if (c->tex != tex_white)
 			return; /* "$blur" (previous-frame feedback) not supported yet */
+		int bl = resolve_blend(c->blend);
+		u32 col = spr_color(c->rgba, bl);
+		if (col == 0 && spr_class(bl) == 1) { /* exactly invisible, see the sprite path below */
+#ifdef AOS_PROFILE
+			prof_cnt.invisible++;
+#endif
+			return;
+		}
 		float hw = (c->halfW > 0 ? c->halfW : 1) * c->sx / zoomDiv, hh = (c->halfH > 0 ? c->halfH : hw) * c->sy / zoomDiv;
 		if (c->halfH > 0)
 			hh = c->halfH * c->sy / zoomDiv;
 		float sx = SCR_W / 2 + (c->x - camX) / zoomDiv, sy = SCR_H / 2 - (c->y - camY) / zoomDiv;
-		float a = -(float)c->rotZ * (6.2831855f / 65536.0f), ca = cosf(a), sa = sinf(a);
+		float ext = fabsf(hw) + fabsf(hh); /* reach of the rotated rect from its centre on either axis */
+		if (sx + ext < 0 || sx - ext > SCR_W || sy + ext < 0 || sy - ext > SCR_H)
+			return; /* off-screen (lines and speedline streaks): no pixels */
+		float a = -(float)c->rotZ * (6.2831855f / 65536.0f), ca, sa;
+		sincosf(a, &sa, &ca); /* one range reduction for both (newlib: same results as sinf/cosf) */
 		float px[4], py[4];
 		const float ux[4] = {-1, 1, 1, -1}, uy[4] = {-1, -1, 1, 1};
 		for (int k = 0; k < 4; k++) {
 			px[k] = sx + ux[k] * hw * ca - uy[k] * hh * sa;
 			py[k] = sy + ux[k] * hw * sa + uy[k] * hh * ca;
 		}
-		int bl = resolve_blend(c->blend);
 		spr_state(NULL, false, bl);
 		spr_vtx *v = spr_quad();
 		if (!v)
 			return;
-		u32 col = spr_color(c->rgba, bl);
 		/* corners 0..3 run around the rect; quad vertex order is TL TR BL BR */
 		spr_set(&v[0], px[0], py[0], SPR_SOLID_UV, SPR_SOLID_UV, col);
 		spr_set(&v[1], px[1], py[1], SPR_SOLID_UV, SPR_SOLID_UV, col);
@@ -214,11 +225,20 @@ static void draw_cmd(const aos_dcmd *c, float camX, float camY, float zoomDiv)
 	if (sx + ex < -64 || sx - ex > SCR_W + 64 || sy + ey < -64 || sy - ey > SCR_H + 64)
 		return;
 	int bl = resolve_blend(c->blend);
+	u32 col = spr_color(c->rgba, bl);
+	/* Exactly invisible: with the batcher's (ONE, ONE_MINUS_SRC_ALPHA) blend a vertex colour of 0 (tint alpha 0,
+	 * or an additive sprite tinted black) gives src = 0 and keeps dst, for premultiplied and straight textures
+	 * alike. Fades end on such draws (alpha ramps to 0); skipping them saves the vertex work and the fill. */
+	if (col == 0 && spr_class(bl) == 1) {
+#ifdef AOS_PROFILE
+		prof_cnt.invisible++;
+#endif
+		return;
+	}
 	spr_state(fr->img.tex, fr->premul, bl);
 	spr_vtx *v = spr_quad();
 	if (!v)
 		return;
-	u32 col = spr_color(c->rgba, bl);
 	/* Mirroring (flipX, negative sx/sy): the quad keeps positive extents around its centre and the texture
 	 * coordinates are mirrored per corner. (Swapping the sub-rectangle's top/bottom instead, as the citro2d
 	 * version did, made Tex3DS read a non-rotated frame as tex3ds-rotated (top < bottom): vertically mirrored
@@ -239,8 +259,9 @@ static void draw_cmd(const aos_dcmd *c, float camX, float camY, float zoomDiv)
 	float x0 = -hx, y0 = -hy, x1 = -hx + qw, y1 = -hy + qh;
 	float cx[4] = {x0, x1, x0, x1}, cy[4] = {y0, y0, y1, y1}; /* TL TR BL BR */
 	float ang = -(float)c->rotZ * (6.2831855f / 65536.0f); /* world CCW -> screen (y down) */
+	float rs = 0.0f, rc = 1.0f;
 	if (ang != 0.0f) {
-		float rs = sinf(ang), rc = cosf(ang);
+		sincosf(ang, &rs, &rc); /* one range reduction for both (newlib: same results as sinf/cosf) */
 		for (int k = 0; k < 4; k++) {
 			float x = cx[k] * rc - cy[k] * rs, y = cy[k] * rc + cx[k] * rs;
 			cx[k] = x;
@@ -276,7 +297,7 @@ static void draw_cmd(const aos_dcmd *c, float camX, float camY, float zoomDiv)
 		prof_cnt.quads++;
 		/* covered screen pixels: the quad's bounding box clipped to the screen, scaled by the
 		 * quad/bbox area ratio for rotated quads */
-		float ca = fabsf(cosf(ang)), sa = fabsf(sinf(ang));
+		float ca = fabsf(rc), sa = fabsf(rs);
 		float bw = qw * ca + qh * sa, bh = qw * sa + qh * ca;
 		float bx0 = fmaxf(0, sx - bw / 2), bx1 = fminf(SCR_W, sx + bw / 2);
 		float by0 = fmaxf(0, sy - bh / 2), by1 = fminf(SCR_H, sy + bh / 2);

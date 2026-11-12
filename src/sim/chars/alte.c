@@ -2011,7 +2011,6 @@ static uint32_t argb(uint8_t a, uint8_t r, uint8_t g, uint8_t b)
 static void effect_draw(aos_world *w, aos_effect *e)
 {
 	int bank = e->team == 2 ? 1 : 0; /* DAT_00885a00 + team*0x10 = that player's palette bank */
-	char nm[24];
 	aos_dcmd *c;
 	(void)w;
 	switch (e->id) {
@@ -2073,8 +2072,8 @@ static void effect_draw(aos_world *w, aos_effect *e)
 	}
 	case 400: {
 		uint32_t a = e->alpha < 0.75f ? (uint32_t)(int32_t)((e->alpha / 0.25f) * 255.0f) : 0xff;
-		snprintf(nm, sizeof nm, "at_elect%02d", (int)(e->age % 4 < 0 ? 0 : e->age % 4));
-		c = fxq(e, nm, bank, 24.0f * e->scale, 24.0f * e->scale, e->rotation, AOS_BLEND_ADD_ALPHA);
+		static const char *const elect[4] = {"at_elect00", "at_elect01", "at_elect02", "at_elect03"}; /* no snprintf per draw */
+		c = fxq(e, elect[e->age % 4 < 0 ? 0 : e->age % 4], bank, 24.0f * e->scale, 24.0f * e->scale, e->rotation, AOS_BLEND_ADD_ALPHA);
 		c->rgba = argb((uint8_t)(a & 0xff), 0xff, 0xff, 0xff);
 		break;
 	}

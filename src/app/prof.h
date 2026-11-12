@@ -64,12 +64,15 @@ enum {
 	BENCH_HALF_SPRITES = 8, /* draw every sprite quad at half width/height (1/4 of the fill) */
 	BENCH_NO_DRAWLIST = 16, /* skip aos_draw_world and the submit (sim + stage + HUD only) */
 	BENCH_ONE_BLEND = 32,   /* (no effect since the 2D batcher, sprbatch.h: blend 1/2 share one GPU state) */
+	BENCH_LOW_HP_P1 = 64,   /* test hook: P1 hp pinned to <= 1 (first hit KOs); KO frames logged as "ko" */
+	BENCH_LOW_HP_P2 = 128,  /* same for P2 */
 };
 extern int bench_flags;
 /* Per-frame render counters (reset by prof_frame_done). px = screen pixels covered by sprite quads
  * (clipped bounding box), a fill-rate proxy; [0] alpha blend, [1] additive/screen, [2] other. */
 typedef struct {
 	unsigned quads, tris, texsw, blendsw, stage_draws, stage_verts;
+	unsigned invisible; /* draw-list quads skipped as exactly invisible (render.c) */
 	float px[3];
 } prof_counters;
 extern prof_counters prof_cnt;

@@ -99,7 +99,8 @@ static bool lines_shown(void)
 #define CY 110.0f
 #define AREA_Y1 220.0f
 #define GAP 2.5f   /* each triangle is pushed this far outwards: thin dark seams along the diagonals */
-#define HEX_R 48.0f /* flat-top hexagon: half width 48, half height 41.6 */
+#define HEX_R 70.0f /* flat-top hexagon: half width 70, half height 60.6 (was 48; ~1.46x, user request 2026-11-13) */
+#define HS (HEX_R / 48.0f) /* hexagon contents scale with it */
 
 static const unsigned slot_col[HT_NSLOT] = {
 	[HT_UP] = 0x9a4cf0,     /* violet */
@@ -113,11 +114,13 @@ static const unsigned slot_col[HT_NSLOT] = {
 static const struct {
 	float x0, y0, x1, y1, gx, gy;
 } area[HT_NSLOT] = {
-	[HT_UP] = {72, 6, 248, 50, 160, 59},
-	[HT_LEFT] = {6, 74, 100, 142, 50, 152},
-	[HT_RIGHT] = {220, 74, 314, 142, 270, 152},
-	[HT_DOWN] = {72, 172, 248, 214, 160, 162},
-	[HT_CENTER] = {CX - 38, CY - 17, CX + 38, CY + 19, CX, CY + 30},
+	/* top/bottom: the strip between the screen edge and the hexagon (y 0..49 / 171..220), gems next to the
+	 * hexagon; left/right: outside the hexagon's side corners (x 90 / 230) */
+	[HT_UP] = {60, 3, 260, 36, 160, 42},
+	[HT_LEFT] = {4, 66, 86, 146, 45, 156},
+	[HT_RIGHT] = {234, 66, 316, 146, 275, 156},
+	[HT_DOWN] = {60, 185, 260, 218, 160, 178},
+	[HT_CENTER] = {CX - 38 * HS, CY - 17 * HS, CX + 38 * HS, CY + 19 * HS, CX, CY + 30 * HS},
 };
 
 #define GAUGE_X0 66.0f
@@ -219,19 +222,9 @@ static void label_area(int k, float *x0, float *y0, float *x1, float *y1)
 		*y1 -= 11;
 }
 
-void panel_match_begin(const aos_world *w, int local)
+/* the labels sit at screen positions: fitted per match / after a layout edit */
+static void fit_labels(void)
 {
-	pl_local = local & 1;
-	pl_chara = w->p[pl_local].id;
-	char folder[32], name[64], path[96];
-	sel_palette_folder(folder, sizeof folder, pl_chara, w->p[pl_local].color);
-	snprintf(name, sizeof name, "reschr_%s", folder);
-	bgfx_load(&pl_art, name, 0, 0, 0.25f); /* 2048² full-body art at 1/4 (seltex.go), 256 KB */
-	snprintf(path, sizeof path, "romfs:/script/%s/commandlist_names.txt", lang_dir(strings_language()));
-	pl_names = kv_load(path);
-	snprintf(path, sizeof path, "romfs:/script/%s/commandlist_categories.txt", lang_dir(strings_language()));
-	pl_cats = kv_load(path);
-	text_width(FONT_SYSTEM, "0", 1.0f); /* load the fonts now, not in the first match frame */
 	memset(lab, 0, sizeof lab);
 	for (int k = 0; k < HT_NSLOT; k++) {
 		const ht_move *m = ht_slot(pl_chara, ht_pos_slot(pl_chara, k));
@@ -243,6 +236,30 @@ void panel_match_begin(const aos_world *w, int local)
 		label_area(k, &x0, &y0, &x1, &y1);
 		fit_label(&lab[k], move_name(m->key), x1 - x0, y1 - y0);
 	}
+}
+
+static void load_char(int chara, int color)
+{
+	bgfx_free(&pl_art);
+	kv_free(pl_names);
+	kv_free(pl_cats);
+	pl_chara = chara;
+	char folder[32], name[64], path[96];
+	sel_palette_folder(folder, sizeof folder, pl_chara, color);
+	snprintf(name, sizeof name, "reschr_%s", folder);
+	bgfx_load(&pl_art, name, 0, 0, 0.25f); /* 2048² full-body art at 1/4 (seltex.go), 256 KB */
+	snprintf(path, sizeof path, "romfs:/script/%s/commandlist_names.txt", lang_dir(strings_language()));
+	pl_names = kv_load(path);
+	snprintf(path, sizeof path, "romfs:/script/%s/commandlist_categories.txt", lang_dir(strings_language()));
+	pl_cats = kv_load(path);
+}
+
+void panel_match_begin(const aos_world *w, int local)
+{
+	pl_local = local & 1;
+	load_char(w->p[pl_local].id, w->p[pl_local].color);
+	text_width(FONT_SYSTEM, "0", 1.0f); /* load the fonts now, not in the first match frame */
+	fit_labels();
 	cache_free();
 	cache_init();
 	pl_on = true;
@@ -279,7 +296,7 @@ void panel_touch_reset(void)
 static int hit(int x, int y)
 {
 	float dx = (float)x - CX, dy = (float)y - CY;
-	if (fabsf(dy) <= HEX_R * 0.866f && fabsf(dx) <= HEX_R - fabsf(dy) * 0.57735f)
+	if (fabsf(dy) <= HEX_R * 0.866f && fabsf(dx) <= HEX_R - fabsf(dy) * 0.57735f) /* follows HEX_R */
 		return HT_CENTER;
 	if ((float)y >= AREA_Y1)
 		return -1; /* the gauge strip */
@@ -288,6 +305,8 @@ static int hit(int x, int y)
 		return dy < 0 ? HT_UP : HT_DOWN;
 	return dx < 0 ? HT_LEFT : HT_RIGHT;
 }
+
+int panel_hit_pos(int x, int y) { return hit(x, y); }
 
 int panel_touch(const aos_world *w)
 {
@@ -497,7 +516,7 @@ static void draw_center(int state, bool pressed)
 	char cat[48];
 	snprintf(cat, sizeof cat, "%s", cv ? cv : "Accel Hyper");
 	cat[strcspn(cat, "\n")] = 0; /* the file's last key: "[EOF]" follows */
-	text_draw(FONT_MENU, cat, CX, CY - 29 + dy, TEXT_CENTER, ui_c2d(argb(live ? 1.0f : 0.6f, 0xffe27a)), 0.55f, 62);
+	text_draw(FONT_MENU, cat, CX, CY - 29 * HS + dy, TEXT_CENTER, ui_c2d(argb(live ? 1.0f : 0.6f, 0xffe27a)), 0.62f, 62 * HS);
 	draw_label(k, state, dy);
 }
 
@@ -726,4 +745,63 @@ void panel_draw(const aos_world *w)
 	}
 	spr_end();
 	draw_gauge_fill(w);
+}
+
+/* ================================================================ layout editor preview */
+
+void panel_preview_begin(int chara, int color)
+{
+	panel_preview_end();
+	load_char(chara, color);
+	text_width(FONT_SYSTEM, "0", 1.0f);
+	fit_labels();
+	pl_on = true;
+	pvalid = false;
+	drawn_ok = false;
+}
+
+int panel_preview_chara(void) { return pl_on ? pl_chara : -1; }
+
+const char *panel_move_name(const char *key) { return move_name(key); }
+
+void panel_preview_refresh(void) { fit_labels(); }
+
+void panel_preview_end(void)
+{
+	if (pl_on || pl_art.t.ok || pl_names)
+		panel_match_end();
+}
+
+/* outline of quadrant k (cursor / picked-up marker) */
+static void quad_outline(int k, float w, u32 c)
+{
+	float x[3], y[3];
+	tri_of(k, x, y);
+	/* pulled in a little so the screen edge does not clip it */
+	float cx = (x[0] + x[1] + x[2]) / 3, cy = (y[0] + y[1] + y[2]) / 3;
+	for (int i = 0; i < 3; i++) {
+		x[i] += (cx - x[i]) * 0.03f + (x[i] <= 0 ? 2 : x[i] >= BW ? -2 : 0);
+		y[i] += (cy - y[i]) * 0.03f + (y[i] <= 0 ? 2 : y[i] >= AREA_Y1 ? -2 : 0);
+	}
+	for (int i = 0; i < 3; i++)
+		seam(x[i], y[i], x[(i + 1) % 3], y[(i + 1) % 3], w, c);
+}
+
+void panel_preview_draw(int cursor, int held, float t)
+{
+	ui_blend_reset();
+	backdrop(1.0f, 0.85f);
+	if (!pl_on)
+		return;
+	for (int k = 0; k < HT_NSLOT; k++)
+		if (k != HT_CENTER) {
+			bool has = ht_slot(pl_chara, ht_pos_slot(pl_chara, k))->key != NULL;
+			draw_quadrant(k, has ? S_READY : S_EMPTY, k == held);
+		}
+	draw_center(ht_slot(pl_chara, HT_CENTER)->key ? S_LOCKED : S_EMPTY, false); /* fixed: drawn dimmed */
+	float pulse = 0.5f + 0.5f * sinf(t * 6.2831853f);
+	if (held >= 0 && held != HT_CENTER)
+		quad_outline(held, 3, ui_c2d(argb(0.95f, 0xfff4a0)));
+	if (cursor >= 0 && cursor != HT_CENTER && cursor != held)
+		quad_outline(cursor, 2.5f, ui_c2d(argb(0.55f + 0.45f * pulse, 0xffffff)));
 }

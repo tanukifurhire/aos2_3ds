@@ -51,4 +51,19 @@ unsigned panel_slot_color(int slot); /* 0xRRGGBB */
 /* Convex chamfered rectangle (corners cut by c) with a vertical gradient top -> bottom (PC ARGB), citro2d. */
 void panel_chamfer(float x0, float y0, float x1, float y1, float c, unsigned top, unsigned bottom);
 
+/* Screen position (HT_*) under bottom-screen point x,y (-1 = the gauge strip). */
+int panel_hit_pos(int x, int y);
+
+/* Layout editor (Config > Controls > Hyper layout): the panel of character chara (art colour `color`) without a
+ * match, its labels at the current ht layout. refresh after the layout changed; draw into the bound target:
+ * cursor = outlined position, held = the picked-up position (-1 none), t = seconds (pulse). end frees it (also
+ * done by panel_match_begin). */
+void panel_preview_begin(int chara, int color);
+int panel_preview_chara(void); /* -1 when no preview is loaded */
+void panel_preview_refresh(void);
+void panel_preview_draw(int cursor, int held, float t);
+void panel_preview_end(void);
+/* Move name (command list) of a ht_move key from the loaded preview / match ("" if none). */
+const char *panel_move_name(const char *key);
+
 #endif

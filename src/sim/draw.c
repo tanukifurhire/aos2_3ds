@@ -26,7 +26,33 @@ static uint32_t name_hash(const char *s)
 	return h;
 }
 
+/* Call-site cache in front of the hash index: draw handlers pass string literals, so the same pointer asks
+ * for the same name every frame. A hit is still verified by content (a reused buffer can't return a stale
+ * id); it only skips hashing the name. Ids are assigned exactly as before (only known names hit). */
+#define TEXP_CACHE 512
+static struct {
+	const char *p;
+	int id;
+} texp_cache[TEXP_CACHE];
+
+static int tex_lookup(const char *name);
+
 int aos_tex(const char *name)
+{
+	uint32_t c = ((uint32_t)(uintptr_t)name * 0x9e3779b1u) >> 23;
+	if (texp_cache[c].p == name && !strcmp(names[texp_cache[c].id], name)) {
+		AOS_PERF_ADD(tex_calls, 1);
+		return texp_cache[c].id;
+	}
+	int id = tex_lookup(name);
+	if (id >= 0) {
+		texp_cache[c].p = name;
+		texp_cache[c].id = id;
+	}
+	return id;
+}
+
+static int tex_lookup(const char *name)
 {
 	AOS_PERF_ADD(tex_calls, 1);
 	uint32_t k = name_hash(name) & (TEX_HASH - 1);

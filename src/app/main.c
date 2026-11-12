@@ -29,6 +29,7 @@
 #include "../sim/sim.h"
 #include "../net/uds_link.h"
 #include "audio.h"
+#include "controls.h"
 #include "conv_scene.h"
 #include "menu.h"
 #include "modes_flow.h"
@@ -47,7 +48,8 @@ int lab_run(C3D_RenderTarget *top, const char *aerr);
 static aos_world world; /* ~1 MB: static, not on the stack */
 static const char *aerr;
 
-/* User button layout -> original input mask (also used by netplay.c). */
+/* Logical actions (the player's bindings already applied by aos_input_from_3ds, aos_input.h) -> original input
+ * mask (also used by netplay.c). Circle Pad / D-pad = movement, not rebindable. */
 uint16_t to_mask(const aos_input_out *o, u32 kh, const circlePosition *cp)
 {
 	uint16_t m = 0;
@@ -383,6 +385,7 @@ int main(void)
 	mkdir("sdmc:/3ds/aos2_3ds", 0777);
 	config_load(); /* config.ini (Part A); progress (unlocks/clears/ranking) is the separate progress.sav */
 	modes_flow_init((uint32_t)svcGetSystemTick(), AOS_SAVE_PATH); /* cosmetic MT + save, before music_init */
+	controls_apply_save(); /* button bindings + hyper layouts from the save (aos_input_from_3ds, hyper_touch) */
 	if (audio_init(&aerr))
 		bgm_init();
 	aos_register_all();

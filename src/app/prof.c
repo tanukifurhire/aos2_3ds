@@ -39,14 +39,15 @@ static float gpu_acc, gpu_max, sgpu, sgpu_max;
 static int dcmd_max, obj_max, sdcmd_max, sobj_max;
 static u32 lin_min, heap_min;
 static FILE *plog;
+static __thread int heap_depth; /* heap counter (below): inside an outer wrapper / the profiler: don't count */
 
 int bench_flags;
 prof_counters prof_cnt;
 /* render counters: window sum/max and scenario sum/max; object pools: max per scenario */
 /* texsw / blendsw / draws: the 2D batcher's texture changes, blend-state changes and draw calls (sprbatch.h,
  * top + bottom screen); before it, blendsw counted citro2d flushes for blend changes */
-enum { RC_QUADS, RC_TRIS, RC_TEXSW, RC_BLENDSW, RC_SDRAWS, RC_SVERTS, RC_PX, RC_PXADD, RC_CMDBUF, RC_DRAWS, RC_N };
-static const char *const rc_names[RC_N] = {"quads", "tris", "texsw", "blendsw", "stgDraws", "stgVerts", "px", "pxAdd", "cmdbuf%", "draws"};
+enum { RC_QUADS, RC_TRIS, RC_TEXSW, RC_BLENDSW, RC_SDRAWS, RC_SVERTS, RC_PX, RC_PXADD, RC_CMDBUF, RC_DRAWS, RC_INVIS, RC_N };
+static const char *const rc_names[RC_N] = {"quads", "tris", "texsw", "blendsw", "stgDraws", "stgVerts", "px", "pxAdd", "cmdbuf%", "draws", "invis"};
 static double rc_acc[RC_N], rc_sacc[RC_N];
 static float rc_max[RC_N], rc_smax[RC_N];
 static float cmdbuf_use;
@@ -68,15 +69,146 @@ static void log_open(void)
 
 void prof_note(const char *fmt, ...)
 {
+	heap_depth++; /* the profiler's own stdio is not the game's heap traffic */
 	log_open();
-	if (!plog)
+	if (!plog) {
+		heap_depth--;
 		return;
+	}
 	va_list ap;
 	va_start(ap, fmt);
 	vfprintf(plog, fmt, ap);
 	va_end(ap);
 	fputc('\n', plog);
 	fflush(plog);
+	heap_depth--;
+}
+
+/* ---- heap traffic counter: the match loop must not allocate ----
+ * Profile builds link with -Wl,--wrap for newlib's malloc family (both the public calls and the reentrant
+ * _r functions newlib itself uses, e.g. fopen) and libctru's linear / VRAM allocators (build.sh). Every call
+ * bumps prof_heap_ops; prof_frame_done logs each match frame (after the first two: lazy one-time setup) that
+ * made any, with the first caller's return address (look it up in aos2_3ds.map / addr2line), and the
+ * scenario summary reports "heapFrames" / "heapOps" (both must be 0). Only the main (game) thread counts;
+ * other threads (the BGM stream thread opens its Ogg track with ~600 Tremor allocations a few frames into
+ * every match) are reported separately as "heapOther". The profiler's own logging is excluded (newlib's
+ * printf of floats allocates its dtoa buffers lazily). */
+volatile unsigned prof_heap_ops, prof_heap_other;
+static volatile u32 heap_first_lr;
+static void *main_tls;           /* the game thread (set from the main thread in prof_frame_start) */
+
+static void heap_note(void *lr)
+{
+	if (heap_depth)
+		return;
+	if (main_tls && getThreadLocalStorage() != main_tls) {
+		prof_heap_other++;
+		return;
+	}
+	if (!heap_first_lr)
+		heap_first_lr = (u32)lr;
+	prof_heap_ops++;
+}
+
+#define HEAP_OUTER(lr, call) \
+	do { \
+		heap_note(lr); \
+		heap_depth++; \
+		call; \
+		heap_depth--; \
+	} while (0)
+
+struct _reent;
+void *__real_malloc(size_t);
+void *__real_calloc(size_t, size_t);
+void *__real_realloc(void *, size_t);
+void *__real_memalign(size_t, size_t);
+void __real_free(void *);
+void *__real__malloc_r(struct _reent *, size_t);
+void *__real__realloc_r(struct _reent *, void *, size_t);
+void *__real__memalign_r(struct _reent *, size_t, size_t);
+void __real__free_r(struct _reent *, void *);
+void *__real_linearMemAlign(size_t, size_t);
+void *__real_linearAlloc(size_t);
+void *__real_linearRealloc(void *, size_t);
+void __real_linearFree(void *);
+void *__real_vramAlloc(size_t);
+void *__real_vramAllocAt(size_t, int);
+void *__real_vramMemAlign(size_t, size_t);
+void *__real_vramMemAlignAt(size_t, size_t, int);
+void __real_vramFree(void *);
+void *__wrap_malloc(size_t);
+void *__wrap_calloc(size_t, size_t);
+void *__wrap_realloc(void *, size_t);
+void *__wrap_memalign(size_t, size_t);
+void __wrap_free(void *);
+void *__wrap__malloc_r(struct _reent *, size_t);
+void *__wrap__realloc_r(struct _reent *, void *, size_t);
+void *__wrap__memalign_r(struct _reent *, size_t, size_t);
+void __wrap__free_r(struct _reent *, void *);
+void *__wrap_linearMemAlign(size_t, size_t);
+void *__wrap_linearAlloc(size_t);
+void *__wrap_linearRealloc(void *, size_t);
+void __wrap_linearFree(void *);
+void *__wrap_vramAlloc(size_t);
+void *__wrap_vramAllocAt(size_t, int);
+void *__wrap_vramMemAlign(size_t, size_t);
+void *__wrap_vramMemAlignAt(size_t, size_t, int);
+void __wrap_vramFree(void *);
+
+void *__wrap_malloc(size_t n) { void *p; HEAP_OUTER(__builtin_return_address(0), p = __real_malloc(n)); return p; }
+void *__wrap_calloc(size_t a, size_t b) { void *p; HEAP_OUTER(__builtin_return_address(0), p = __real_calloc(a, b)); return p; }
+void *__wrap_realloc(void *q, size_t n) { void *p; HEAP_OUTER(__builtin_return_address(0), p = __real_realloc(q, n)); return p; }
+void *__wrap_memalign(size_t a, size_t n) { void *p; HEAP_OUTER(__builtin_return_address(0), p = __real_memalign(a, n)); return p; }
+void __wrap_free(void *q)
+{
+	if (q)
+		HEAP_OUTER(__builtin_return_address(0), __real_free(q));
+}
+void *__wrap__malloc_r(struct _reent *r, size_t n) { heap_note(__builtin_return_address(0)); return __real__malloc_r(r, n); }
+void *__wrap__realloc_r(struct _reent *r, void *q, size_t n) { heap_note(__builtin_return_address(0)); return __real__realloc_r(r, q, n); }
+void *__wrap__memalign_r(struct _reent *r, size_t a, size_t n) { heap_note(__builtin_return_address(0)); return __real__memalign_r(r, a, n); }
+void __wrap__free_r(struct _reent *r, void *q)
+{
+	if (q)
+		heap_note(__builtin_return_address(0));
+	__real__free_r(r, q);
+}
+void *__wrap_linearMemAlign(size_t n, size_t a) { void *p; HEAP_OUTER(__builtin_return_address(0), p = __real_linearMemAlign(n, a)); return p; }
+void *__wrap_linearAlloc(size_t n) { void *p; HEAP_OUTER(__builtin_return_address(0), p = __real_linearAlloc(n)); return p; }
+void *__wrap_linearRealloc(void *q, size_t n) { void *p; HEAP_OUTER(__builtin_return_address(0), p = __real_linearRealloc(q, n)); return p; }
+void __wrap_linearFree(void *q)
+{
+	if (q)
+		HEAP_OUTER(__builtin_return_address(0), __real_linearFree(q));
+}
+void *__wrap_vramAlloc(size_t n) { void *p; HEAP_OUTER(__builtin_return_address(0), p = __real_vramAlloc(n)); return p; }
+void *__wrap_vramAllocAt(size_t n, int pos) { void *p; HEAP_OUTER(__builtin_return_address(0), p = __real_vramAllocAt(n, pos)); return p; }
+void *__wrap_vramMemAlign(size_t n, size_t a) { void *p; HEAP_OUTER(__builtin_return_address(0), p = __real_vramMemAlign(n, a)); return p; }
+void *__wrap_vramMemAlignAt(size_t n, size_t a, int pos) { void *p; HEAP_OUTER(__builtin_return_address(0), p = __real_vramMemAlignAt(n, a, pos)); return p; }
+void __wrap_vramFree(void *q)
+{
+	if (q)
+		HEAP_OUTER(__builtin_return_address(0), __real_vramFree(q));
+}
+
+static unsigned heap_seen, heap_frames, heap_ops_match, heap_logged, heap_other0;
+
+/* once per match frame (prof_frame_done) */
+static void heap_check(int mframe)
+{
+	unsigned n = prof_heap_ops, d = n - heap_seen;
+	u32 lr = heap_first_lr;
+	heap_seen = n;
+	heap_first_lr = 0;
+	if (!d || mframe <= 2)
+		return; /* the first frames: one-time lazy setup (stage caches, stdio) */
+	heap_frames++;
+	heap_ops_match += d;
+	if (heap_logged < 32) {
+		heap_logged++;
+		prof_note("heap: %u allocator calls in match frame %d (first caller %08lx)", d, mframe, (unsigned long)lr);
+	}
 }
 
 static u32 heap_free(void)
@@ -141,11 +273,13 @@ static void cap_grab(void)
 	GSPGPU_InvalidateDataCache(t->frameBuf.colorBuf, n);
 	char path[48];
 	snprintf(path, sizeof path, "sdmc:/cap/f%06d.raw", cap_pending);
+	heap_depth++;
 	FILE *f = fopen(path, "wb");
 	if (f) {
 		fwrite(t->frameBuf.colorBuf, 1, n, f);
 		fclose(f);
 	}
+	heap_depth--;
 	cap_pending = -1;
 }
 
@@ -171,6 +305,8 @@ void prof_bgm_decode(uint64_t ticks)
 void prof_frame_start(void)
 {
 	u64 now = svcGetSystemTick();
+	if (!main_tls)
+		main_tls = getThreadLocalStorage();
 	if (frame_wall0) {
 		u64 d = now - frame_wall0;
 		if (d > (u64)(17500 * TICKS_PER_US))
@@ -205,6 +341,7 @@ void prof_frame_done(const struct aos_world *cw)
 			cap_pending = 1000000 + mframes + 1; /* f1xxxxxx.raw = match frame xxxxxx */
 	u64 cpu = svcGetSystemTick() - frame_t0 - wait_this_frame;
 	wait_this_frame = 0;
+	heap_check(mframes + 1);
 	if (++mframes == 30) { /* maxima exclude the match load and texture uploads of the first frames */
 		memset(mx, 0, sizeof mx);
 		memset(smx, 0, sizeof smx);
@@ -230,7 +367,7 @@ void prof_frame_done(const struct aos_world *cw)
 		float v[RC_N] = {(float)prof_cnt.quads, (float)prof_cnt.tris, (float)spr_stats.texsw, (float)spr_stats.statesw,
 		                 (float)prof_cnt.stage_draws, (float)prof_cnt.stage_verts,
 		                 prof_cnt.px[0] + prof_cnt.px[1] + prof_cnt.px[2], prof_cnt.px[1], cmdbuf_use * 100.0f,
-		                 (float)spr_stats.draws};
+		                 (float)spr_stats.draws, (float)prof_cnt.invisible};
 		memset(&spr_stats, 0, sizeof spr_stats);
 		for (int k = 0; k < RC_N; k++) {
 			rc_acc[k] += v[k];
@@ -250,6 +387,7 @@ void prof_frame_done(const struct aos_world *cw)
 	}
 	if (++nwin < WIN)
 		return;
+	heap_depth++; /* window log + panel lines: profiler-only stdio */
 	mem_sample();
 	u64 b = bgm_acc, bm = bgm_max;
 	bgm_acc = bgm_max = 0;
@@ -261,8 +399,9 @@ void prof_frame_done(const struct aos_world *cw)
 	           us(acc[PROF_CPU] / WIN), us(mx[PROF_CPU]), us(acc[PROF_FRAME] / WIN), us(mx[PROF_FRAME]),
 	           (double)(gpu_acc / WIN), (double)gpu_max, (unsigned)(b * 100 / (acc[PROF_FRAME] ? acc[PROF_FRAME] : 1)),
 	           obj_max, dcmd_max);
-	panel_line(5, C2D_Color32(180, 255, 180, 255), "lin free %luK heap free %luK vram %luK", (unsigned long)(linearSpaceFree() >> 10),
-	           (unsigned long)(heap_free() >> 10), (unsigned long)(vramSpaceFree() >> 10));
+	panel_line(5, heap_frames ? C2D_Color32(255, 120, 120, 255) : C2D_Color32(180, 255, 180, 255),
+	           "lin free %luK heap free %luK vram %luK allocfr %u", (unsigned long)(linearSpaceFree() >> 10),
+	           (unsigned long)(heap_free() >> 10), (unsigned long)(vramSpaceFree() >> 10), heap_frames);
 	if (plog) {
 		fprintf(plog, "win");
 		for (int s = 0; s < PROF_N; s++)
@@ -301,6 +440,7 @@ void prof_frame_done(const struct aos_world *cw)
 	}
 	nwin = 0;
 	nscen++;
+	heap_depth--;
 }
 
 void prof_match_begin(const struct aos_world *cw, int stage)
@@ -325,6 +465,10 @@ void prof_match_begin(const struct aos_world *cw, int stage)
 	memset(hist, 0, sizeof hist);
 	over_cpu = over_frame = 0;
 	memset(&prof_cnt, 0, sizeof prof_cnt);
+	heap_seen = prof_heap_ops;
+	heap_other0 = prof_heap_other;
+	heap_first_lr = 0;
+	heap_frames = heap_ops_match = heap_logged = 0;
 	mem_sample();
 	prof_note("match %d vs %d stage %d: heap %lu KB (free %lu KB), linear %lu KB (free %lu KB), vram free %lu KB, "
 	          "sizeof(aos_world) %u, sprite textures %lu KB linear + %lu KB VRAM, SE PCM %lu KB",
@@ -366,7 +510,8 @@ void prof_match_end(void)
 		}
 		fprintf(plog, " cpuP%d %u", (int)(q[j] * 100), (unsigned)(i + 1) * 500);
 	}
-	fprintf(plog, " cpuOver16.7 %u framesOver17.5 %u\n", over_cpu, over_frame);
+	fprintf(plog, " cpuOver16.7 %u framesOver17.5 %u heapFrames %u heapOps %u heapOther %u\n", over_cpu, over_frame, heap_frames,
+	        heap_ops_match, prof_heap_other - heap_other0);
 	fflush(plog);
 }
 
@@ -428,6 +573,13 @@ void bench_pre_tick(struct aos_world *w)
 {
 	if (cur >= 0 && cur < nsc && sc[cur].hyper)
 		w->p[0].hyper = w->p[1].hyper = 3.0f;
+	for (int i = 0; i < 2 && cur >= 0 && cur < nsc; i++) {
+		aos_player *p = &w->p[i];
+		if ((bench_flags & (BENCH_LOW_HP_P1 << i)) && p->hp > 1)
+			p->hp = 1;
+		if ((bench_flags & (BENCH_LOW_HP_P1 << i)) && p->state == AOS_ST_KO && p->timer == 0)
+			prof_note("ko p%d round frame %d match frame %d\n", i + 1, (int)w->frame, mframes);
+	}
 }
 
 bool bench_done(void) { return cur >= 0 && cur < nsc && --frames_left < 0; }

@@ -6,14 +6,19 @@
  *
  * 3DS file: AOS_SAVE_PATH. Format (all little endian), version AOS_SAVE_FORMAT:
  *   0x000 "A2SV"            magic
- *   0x004 u16 format         AOS_SAVE_FORMAT (1)
+ *   0x004 u16 format         AOS_SAVE_FORMAT (2; 1 = without the controls block)
  *   0x006 u16 game version   0x5a2
- *   0x008 u32 payload bytes  (0xa4 + 0xca8 + 4 = 0xd50 in format 1)
+ *   0x008 u32 payload bytes  (0xa4 + 0xca8 + 4 = 0xd50 in format 1, + 0x68 controls in format 2)
  *   0x00c u32 crc32          (IEEE, of the payload)
  *   0x010 payload:
  *         0x0a4 bytes  game.sys image, byte layout of DAT_0087b728 (see aos_save fields)
  *         0xca8 bytes  game.rkg image, 3 difficulties x 10 x {i32 score, i32 name[7], i32 char}
  *         u32          achievements bitmask (bit = Steam achievement index, §D.5; port extra)
+ *         format 2: 0x68 bytes controls (port, 2026-11-13; AOS_SAVE_CTL_BYTES):
+ *           u8 1, u8 AOS_SAVE_BINDS, u8 binds[AOS_SAVE_BINDS]  button rebinding (aos_input.h aos_binds:
+ *                                      AOS_BTN_* per AOS_ACT_*)
+ *           u8 hyperLayout[AOS_SAVE_CHARS][5]  touch hyper layout per character, screen position -> slot
+ *                                      (hyper_touch.h; 0xff.. = the default layout), then zero padding
  * A later format may append fields after the payload's known part; a reader takes the
  * prefix it knows and defaults the rest. Bad magic / crc / short file -> defaults.
  */
@@ -25,10 +30,14 @@
 
 #define AOS_SAVE_DIR "sdmc:/3ds/aos2_3ds"
 #define AOS_SAVE_PATH AOS_SAVE_DIR "/progress.sav"
-#define AOS_SAVE_FORMAT 1
+#define AOS_SAVE_FORMAT 2
 #define AOS_SAVE_SYS_BYTES 0xa4
 #define AOS_SAVE_RKG_BYTES 0xca8
-#define AOS_SAVE_FILE_BYTES (16 + AOS_SAVE_SYS_BYTES + AOS_SAVE_RKG_BYTES + 4)
+#define AOS_SAVE_CTL_BYTES 0x68
+#define AOS_SAVE_FILE_BYTES_V1 (16 + AOS_SAVE_SYS_BYTES + AOS_SAVE_RKG_BYTES + 4)
+#define AOS_SAVE_FILE_BYTES (AOS_SAVE_FILE_BYTES_V1 + AOS_SAVE_CTL_BYTES)
+#define AOS_SAVE_BINDS 6  /* AOS_ACT_COUNT */
+#define AOS_SAVE_HT_SLOTS 5 /* HT_NSLOT */
 
 #define AOS_SAVE_CHARS 0x13  /* per-character arrays (index = engine char id) */
 #define AOS_SAVE_STAGES 0x14
@@ -57,6 +66,8 @@ typedef struct {
 	aos_rank_entry rank[3][AOS_RANK_ENTRIES]; /* DAT_0087b7d0 [diff][pos] */
 	/* port */
 	uint32_t achievements;                    /* bit k = FUN_007ca890(k) was called */
+	uint8_t binds[AOS_SAVE_BINDS];            /* format 2: AOS_BTN_* per AOS_ACT_* (always valid after decode) */
+	uint8_t hyperLayout[AOS_SAVE_CHARS][AOS_SAVE_HT_SLOTS]; /* format 2: pos -> slot, 0xff row = default layout */
 	int dirty;                                /* set where the PC writes game.sys/game.rkg; app clears after writing */
 } aos_save;
 
@@ -77,5 +88,6 @@ int aos_save_load_file(aos_save *s, const char *path);
 int aos_save_write_file(const aos_save *s, const char *dir, const char *path);
 
 void aos_save_achieve(aos_save *s, int id); /* FUN_007ca890 (port: bitmask only) */
+void aos_save_controls_defaults(aos_save *s); /* default buttons, every hyper layout = default */
 
 #endif

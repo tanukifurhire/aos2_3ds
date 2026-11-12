@@ -2,19 +2,84 @@
 
 #include <string.h>
 
-#ifdef __3DS__
-#include <3ds.h>
-uint32_t aos_input_from_3ds(uint32_t k)
+/* ---- bindings (table-driven: action -> physical button) ---- */
+
+static const uint8_t default_btn[AOS_ACT_COUNT] = {
+	[AOS_ACT_DASH] = AOS_BTN_L,        [AOS_ACT_SHIELD] = AOS_BTN_R,     [AOS_ACT_WEAPON_A] = AOS_BTN_A,
+	[AOS_ACT_WEAPON_B] = AOS_BTN_B,    [AOS_ACT_SPECIAL_A] = AOS_BTN_X,  [AOS_ACT_SPECIAL_B] = AOS_BTN_Y,
+};
+
+void aos_binds_default(aos_binds *b) { memcpy(b->btn, default_btn, sizeof b->btn); }
+
+int aos_binds_valid(const aos_binds *b)
+{
+	uint32_t used = 0;
+	for (int a = 0; a < AOS_ACT_COUNT; a++) {
+		if (b->btn[a] >= AOS_BTN_COUNT || (used & AOS_PHYS(b->btn[a])))
+			return 0;
+		used |= AOS_PHYS(b->btn[a]);
+	}
+	return 1;
+}
+
+int aos_binds_action(const aos_binds *b, int btn)
+{
+	for (int a = 0; a < AOS_ACT_COUNT; a++)
+		if (b->btn[a] == btn)
+			return a;
+	return -1;
+}
+
+int aos_binds_assign(aos_binds *b, int act, int btn)
+{
+	if (act < 0 || act >= AOS_ACT_COUNT || btn < 0 || btn >= AOS_BTN_COUNT || b->btn[act] == btn)
+		return -1;
+	int other = aos_binds_action(b, btn);
+	if (other >= 0)
+		b->btn[other] = b->btn[act]; /* conflict: the two actions trade buttons */
+	b->btn[act] = (uint8_t)btn;
+	return other;
+}
+
+uint32_t aos_binds_map(const aos_binds *b, uint32_t phys)
 {
 	uint32_t r = 0;
-	if (k & KEY_L) r |= AOS_RAW_L;
-	if (k & KEY_R) r |= AOS_RAW_R;
-	if (k & KEY_A) r |= AOS_RAW_A;
-	if (k & KEY_B) r |= AOS_RAW_B;
-	if (k & KEY_X) r |= AOS_RAW_X;
-	if (k & KEY_Y) r |= AOS_RAW_Y;
+	for (int a = 0; a < AOS_ACT_COUNT; a++)
+		if (phys & AOS_PHYS(b->btn[a]))
+			r |= 1u << a;
 	return r;
 }
+
+const char *aos_btn_name(int btn)
+{
+	static const char *const n[AOS_BTN_COUNT] = {"A", "B", "X", "Y", "L", "R", "SELECT"};
+	return btn >= 0 && btn < AOS_BTN_COUNT ? n[btn] : "?";
+}
+
+static aos_binds cur = {{AOS_BTN_L, AOS_BTN_R, AOS_BTN_A, AOS_BTN_B, AOS_BTN_X, AOS_BTN_Y}};
+
+const aos_binds *aos_binds_current(void) { return &cur; }
+
+void aos_binds_set_current(const aos_binds *b)
+{
+	if (b && aos_binds_valid(b))
+		cur = *b;
+	else
+		aos_binds_default(&cur);
+}
+
+#ifdef __3DS__
+#include <3ds.h>
+uint32_t aos_input_phys_from_3ds(uint32_t k)
+{
+	static const uint32_t key[AOS_BTN_COUNT] = {KEY_A, KEY_B, KEY_X, KEY_Y, KEY_L, KEY_R, KEY_SELECT};
+	uint32_t r = 0;
+	for (int b = 0; b < AOS_BTN_COUNT; b++)
+		if (k & key[b])
+			r |= AOS_PHYS(b);
+	return r;
+}
+uint32_t aos_input_from_3ds(uint32_t k) { return aos_binds_map(&cur, aos_input_phys_from_3ds(k)); }
 #endif
 
 void aos_input_init(aos_input *s, const aos_input_cfg *cfg)

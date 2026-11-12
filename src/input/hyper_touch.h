@@ -33,10 +33,24 @@ typedef struct {
 
 /* Slot description for engine character id (3..18). Never NULL (an empty move for unknown ids). */
 const ht_move *ht_slot(int chara, int slot);
-/* Screen position <-> slot (an involution, so it maps both ways). Left/right are where the thumbs rest, so they
- * are filled first: an empty left/right slot swaps with the bottom (then top) move and the gap shows at the
- * top/bottom (user layout choice). Every current character has its gaps at the bottom/centre already. */
-int ht_pos_slot(int chara, int pos);
+/* Screen layout (port, user request 2026-11-13): per character a permutation screen position -> slot, editable
+ * by the player (Config > Controls > Hyper layout) and kept in the progress save. The centre is always the Accel
+ * Hyper; an empty slot moves with the layout like any other. Default (ht_layout_default): left/right are where
+ * the thumbs rest, so they are filled first: an empty left/right slot swaps with the bottom (then top) move and
+ * the gap shows at the top/bottom. Sumika's second form (18) uses Sumika's layout. The touch -> logical slot
+ * conversion is local (the slot becomes ordinary input bits), so netplay sends nothing extra. */
+int ht_pos_slot(int chara, int pos);  /* screen position -> slot */
+int ht_slot_pos(int chara, int slot); /* slot -> screen position */
+void ht_layout_default(int chara, uint8_t pos_slot[HT_NSLOT]);
+/* A permutation of the slots with the centre on the centre. */
+bool ht_layout_valid(const uint8_t pos_slot[HT_NSLOT]);
+void ht_layout_get(int chara, uint8_t pos_slot[HT_NSLOT]);
+/* Set chara's layout (invalid -> the default). */
+void ht_layout_set(int chara, const uint8_t pos_slot[HT_NSLOT]);
+/* Swap what sits at two (non-centre) positions; false if not allowed. */
+bool ht_layout_swap(int chara, int pos_a, int pos_b);
+bool ht_layout_is_default(int chara);
+void ht_layout_reset_all(void);
 /* The slot exists, the gauge pays for it and FUN_00780950 allows a hyper now. */
 bool ht_ready(const aos_world *w, int player, int slot);
 

@@ -9,10 +9,12 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "../input/aos_input.h"
 #include "../input/hyper_touch.h"
 #include "../platform/panel.h"
 #include "../platform/stage.h"
 #include "audio.h"
+#include "btnglyph.h"
 #include "modes_flow.h"
 #include "movelist.h"
 #include "music.h"
@@ -888,60 +890,8 @@ static void cl_free(void)
 	cmdlist = cmdcats = cmdinstr = NULL;
 }
 
-/* 3DS face button: coloured disc (New 3DS colours), light rim, letter */
-static float glyph_face(float x, float cy, char letter, float a)
-{
-	unsigned col = letter == 'A' ? 0xe0403c : letter == 'B' ? 0xf0c020 : letter == 'X' ? 0x3a7cf0 : 0x30b060;
-	float r = 7.5f, cx = x + r;
-	C2D_DrawCircleSolid(cx, cy + 1, UI_DEPTH, r + 0.5f, c2d(a8(a * 0.6f)));
-	C2D_DrawCircleSolid(cx, cy, UI_DEPTH, r, c2d(a8(a) | 0xf4f4f8));
-	C2D_DrawCircleSolid(cx, cy, UI_DEPTH, r - 1.5f, c2d(a8(a) | col));
-	C2D_DrawCircleSolid(cx - 1.5f, cy - 2, UI_DEPTH, r - 4.0f, c2d(a8(a * 0.25f) | 0xffffff));
-	char s[2] = {letter, 0};
-	text_draw(FONT_SYSTEM, s, cx + 0.5f, cy + 1, TEXT_CENTER, c2d(a8(a * 0.8f)), 0.8f, 0);
-	text_draw(FONT_SYSTEM, s, cx, cy, TEXT_CENTER, c2d(a8(a) | 0xffffff), 0.8f, 0);
-	return 2 * r;
-}
-
-/* shoulder button: grey slanted pill */
-static float glyph_shoulder(float x, float cy, char letter, float a)
-{
-	float w = 18, h = 12;
-	panel_chamfer(x, cy - h / 2 + 1, x + w, cy + h / 2 + 1, 3, a8(a * 0.6f), a8(a * 0.6f));
-	panel_chamfer(x, cy - h / 2, x + w, cy + h / 2, 3, a8(a) | 0xe8eaf0, a8(a) | 0x8a90a0);
-	panel_chamfer(x + 1.5f, cy - h / 2 + 1.5f, x + w - 1.5f, cy + h / 2 - 1.5f, 2, a8(a) | 0x6a7080, a8(a) | 0x3a4050);
-	char s[2] = {letter, 0};
-	text_draw(FONT_SYSTEM, s, x + w / 2, cy, TEXT_CENTER, c2d(a8(a) | 0xffffff), 0.75f, 0);
-	return w;
-}
-
-/* touch hyper button: a small map of the bottom panel with the move's button lit */
-/* touch hyper button: a small map of the bottom panel (X-cut quadrants + the Accel hexagon) with the move's
- * button lit */
+/* button glyphs: btnglyph.c (they follow the player's bindings and hyper layout) */
 static int ml_chara; /* the move list's character (pause_draw_bottom): its screen layout of the slots */
-
-static float glyph_touch(float x, float cy, int slot, float a)
-{
-	const int pos = ht_pos_slot(ml_chara, slot);
-	const float w = 26, h = 18, y0 = cy - h / 2, mx = x + w / 2, my = y0 + h / 2;
-	panel_chamfer(x - 1, y0 - 1, x + w + 1, y0 + h + 1, 3, a8(a) | 0xc8d0e0, a8(a) | 0x707890);
-	ui_rect(x, y0, x + w, y0 + h, a8(a) | 0x0a1024);
-	/* quadrant k: outer corners, inset 0.6 px from the diagonals */
-	const float qx[4][2] = {{x + 1, x + w - 1}, {x, x}, {x + w, x + w}, {x + 1, x + w - 1}},
-	            qy[4][2] = {{y0, y0}, {y0 + 1, y0 + h - 1}, {y0 + 1, y0 + h - 1}, {y0 + h, y0 + h}};
-	const float ax[4] = {0, -1, 1, 0}, ay[4] = {-1, 0, 0, 1};
-	for (int k = 0; k < 4; k++) {
-		u32 c = c2d(a8(a) | (k == pos ? panel_slot_color(slot) : 0x3a4258));
-		C2D_DrawTriangle(qx[k][0], qy[k][0], c, qx[k][1], qy[k][1], c, mx + ax[k], my + ay[k], c, UI_DEPTH);
-	}
-	u32 cc = c2d(a8(a) | (slot == HT_CENTER ? panel_slot_color(HT_CENTER) : 0x4a5268)), rim = c2d(a8(a) | 0x0a1024);
-	const float r = 4.5f, hr = 3.9f;
-	C2D_DrawTriangle(mx - r - 1, my, rim, mx + r + 1, my, rim, mx, my - hr - 1, rim, UI_DEPTH);
-	C2D_DrawTriangle(mx - r - 1, my, rim, mx + r + 1, my, rim, mx, my + hr + 1, rim, UI_DEPTH);
-	C2D_DrawTriangle(mx - r, my, cc, mx + r, my, cc, mx, my - hr, cc, UI_DEPTH);
-	C2D_DrawTriangle(mx - r, my, cc, mx + r, my, cc, mx, my + hr, cc, UI_DEPTH);
-	return w;
-}
 
 static float glyph_text(float x, float cy, const char *s, unsigned rgb, float a)
 {
@@ -970,17 +920,27 @@ static int tok_slot(const ml_entry *e)
 	return s && b ? HT_CENTER : s ? HT_UP : b ? HT_RIGHT : d ? HT_DOWN : HT_LEFT;
 }
 
-/* The 3DS input of a move (user mapping): S+A = X, S+B = Y, D = L held, hypers = touch buttons. Returns the end
- * x; *tag gets a range note (CLOSE / LONG) for the right side of the card. */
+/* the action whose button gives a non-hyper move: S+A = Special A, S+B = Special B, A / B = the weapons */
+static int face_act(const ml_entry *e)
+{
+	bool hA = false, hB = false, hS = false;
+	for (int i = 0; i < e->ntok; i++) {
+		hA |= e->tok[i] == T_A;
+		hB |= e->tok[i] == T_B;
+		hS |= e->tok[i] == T_S;
+	}
+	return hS && hB && !hA ? AOS_ACT_SPECIAL_B : hS ? AOS_ACT_SPECIAL_A : hA ? AOS_ACT_WEAPON_A : AOS_ACT_WEAPON_B;
+}
+
+/* The 3DS input of a move (the player's bindings, aos_input.h): S+A = Special A, S+B = Special B, D = the Dash
+ * button held, hypers = touch buttons. Returns the end x; *tag gets a range note (CLOSE / LONG) for the right
+ * side of the card. */
 static float draw_input(const ml_entry *e, float x, float cy, float a, const char **tag)
 {
-	bool hA = false, hB = false, hS = false, hD = false, hold = false, dashing = false;
+	bool hD = false, hold = false, dashing = false;
 	*tag = NULL;
 	for (int i = 0; i < e->ntok; i++)
 		switch (e->tok[i]) {
-		case T_A: hA = true; break;
-		case T_B: hB = true; break;
-		case T_S: hS = true; break;
 		case T_D: hD = true; break;
 		case T_HOLD: hold = true; break;
 		case T_DASHING: dashing = true; break;
@@ -988,22 +948,21 @@ static float draw_input(const ml_entry *e, float x, float cy, float a, const cha
 		case T_LONG: *tag = cl_get(cmdinstr, "COMMANDLISTINSTRUCTION_LONGRANGE", "(LONG RANGE)"); break;
 		default: break;
 		}
-	if (dashing) { /* "also while dashing": the L is optional */
+	if (dashing) { /* "also while dashing": the Dash button is optional */
 		x += glyph_text(x, cy, "(", 0xa0a8c0, a);
-		x += glyph_shoulder(x + 1, cy, 'L', a * 0.75f) + 1;
+		x += glyph_act(x + 1, cy, AOS_ACT_DASH, a * 0.75f, 1) + 1;
 		x += glyph_text(x + 1, cy, ")", 0xa0a8c0, a) + 3;
 	}
-	if (hD && e->cat < ML_HYPER) { /* the D+H touch button holds L itself */
-		x += glyph_shoulder(x, cy, 'L', a) + 2;
+	if (hD && e->cat < ML_HYPER) { /* the D+H touch button holds Dash itself */
+		x += glyph_act(x, cy, AOS_ACT_DASH, a, 1) + 2;
 		ui_rect(x, cy - 0.75f, x + 7, cy + 0.75f, a8(a) | 0xffffff); /* "+" */
 		ui_rect(x + 2.75f, cy - 3.5f, x + 4.25f, cy + 3.5f, a8(a) | 0xffffff);
 		x += 9;
 	}
 	if (e->cat >= ML_HYPER) {
-		x += glyph_touch(x, cy, tok_slot(e), a);
+		x += glyph_touch(x, cy, ml_chara, tok_slot(e), a, 1);
 	} else {
-		char btn = hS && hA ? 'X' : hS && hB ? 'Y' : hS ? 'X' : hA ? 'A' : 'B';
-		x += glyph_face(x, cy, btn, a);
+		x += glyph_act(x, cy, face_act(e), a, 1);
 	}
 	if (hold)
 		x += 3 + glyph_hold(x + 3, cy, a);
@@ -1019,11 +978,11 @@ static float input_width(const ml_entry *e)
 		hold |= e->tok[i] == T_HOLD;
 		dashing |= e->tok[i] == T_DASHING;
 	}
-	float w = e->cat >= ML_HYPER ? 26 : 15;
+	float w = e->cat >= ML_HYPER ? 26 : glyph_act_width(face_act(e), 1);
 	if (dashing)
-		w += text_width(FONT_SYSTEM, "()", 0.75f) + 1 + 18 + 1 + 1 + 3;
+		w += text_width(FONT_SYSTEM, "()", 0.75f) + 1 + glyph_act_width(AOS_ACT_DASH, 1) + 1 + 1 + 3;
 	if (hD && e->cat < ML_HYPER)
-		w += 18 + 2 + 9;
+		w += glyph_act_width(AOS_ACT_DASH, 1) + 2 + 9;
 	if (hold)
 		w += 3 + text_width(FONT_SYSTEM, cl_get(cmdinstr, "COMMANDLISTINSTRUCTION_HOLD", "HOLD"), 0.62f) + 8;
 	return w;

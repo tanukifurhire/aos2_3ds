@@ -1042,9 +1042,61 @@ static void pass_laser_block(aos_world *w)
 	}
 }
 
+/* Laser broad phase (perf only, exact). A laser is a chain of up to AOS_LASER_SEGS segment shapes and the
+ * missile/enemy passes test every segment of every laser against every target (Tsih's worst tick: ~20k
+ * segment tests). aos_shape_hit rejects a pair without any other effect when the centres are farther apart on
+ * one axis than reach(A) + reach(B) + 1 (coordinates < 1e5). If a target lies beyond the bounding box of all
+ * segment reaches by reach(target) + 2 on one axis, every segment test of that laser would take that exit, so
+ * the laser can be skipped without changing any result; the extra unit covers float rounding of the box.
+ * Boxes are rebuilt whenever a kill handler ran (it may spawn or change lasers). */
+typedef struct {
+	float x0, y0, x1, y1;
+	bool ok; /* false: never skip (insane coordinates / NaN) */
+} aos_lbox;
+static aos_lbox lbox[AOS_MAX_LASER];
+
+static void laser_boxes(const aos_world *w)
+{
+	for (int li = 0; li < w->obj.nlaser; li++) {
+		const aos_laser *l = &w->obj.laser[li];
+		aos_lbox *b = &lbox[li];
+		b->x0 = b->y0 = 1.0e9f;
+		b->x1 = b->y1 = -1.0e9f;
+		b->ok = true;
+		for (int k = 0; k < l->nseg && k < AOS_LASER_SEGS; k++) {
+			const float *q = l->seg[k].pos;
+			float r = shape_reach(&l->seg[k].shape);
+			if (!(aos_fabs(q[0]) < 1.0e5f && aos_fabs(q[1]) < 1.0e5f && r < 1.0e5f)) {
+				b->ok = false;
+				break;
+			}
+			if (q[0] - r < b->x0)
+				b->x0 = q[0] - r;
+			if (q[0] + r > b->x1)
+				b->x1 = q[0] + r;
+			if (q[1] - r < b->y0)
+				b->y0 = q[1] - r;
+			if (q[1] + r > b->y1)
+				b->y1 = q[1] + r;
+		}
+	}
+}
+
+static bool laser_far(int li, const float pos[3], const aos_shape *s)
+{
+	const aos_lbox *b = &lbox[li];
+	float r = shape_reach(s) + 2.0f, x = pos[0], y = pos[1];
+	if (!b->ok || !(aos_fabs(x) < 1.0e5f && aos_fabs(y) < 1.0e5f && r < 1.0e5f))
+		return false;
+	return x + r < b->x0 || x - r > b->x1 || y + r < b->y0 || y - r > b->y1;
+}
+
 /* 14. Laser -> Missile, FUN_006107f0 (literal: the hit flag is not reset per laser) */
 static void pass_laser_missile(aos_world *w)
 {
+	if (!w->obj.nlaser)
+		return;
+	laser_boxes(w);
 	for (int c = 0; c < w->obj.nmissile; c++) {
 		if (!w->obj.missile[c].active)
 			continue;
@@ -1052,7 +1104,7 @@ static void pass_laser_missile(aos_world *w)
 		for (int li = 0; li < w->obj.nlaser; li++) {
 			aos_laser *l = &w->obj.laser[li];
 			aos_missile *m = &w->obj.missile[c];
-			if (l->team == m->team)
+			if (l->team == m->team || laser_far(li, m->pos, &m->shapeProj))
 				continue;
 			for (int k = 0; k < l->nseg; k++) {
 				if (aos_shape_hit(l->seg[k].pos, m->pos, &l->seg[k].shape, &m->shapeProj, l->angle, m->angle)) {
@@ -1067,14 +1119,20 @@ static void pass_laser_missile(aos_world *w)
 			if (killed)
 				break;
 		}
-		if (killed && !missile_on_killed(w, c))
-			missile_erase(w, c--);
+		if (killed) {
+			if (!missile_on_killed(w, c))
+				missile_erase(w, c--);
+			laser_boxes(w);
+		}
 	}
 }
 
 /* 15. Laser -> Enemy, FUN_006105d0 (literal: flag not reset per laser; ignores invulnerable) */
 static void pass_laser_enemy(aos_world *w)
 {
+	if (!w->obj.nlaser)
+		return;
+	laser_boxes(w);
 	for (int k = 0; k < w->obj.nenemy; k++) {
 		aos_enemy *e = &w->obj.enemy[k];
 		if (!e->active || e->solid == 1)
@@ -1082,7 +1140,7 @@ static void pass_laser_enemy(aos_world *w)
 		bool hit = false, dead = false;
 		for (int li = 0; li < w->obj.nlaser; li++) {
 			aos_laser *l = &w->obj.laser[li];
-			if (l->team == e->team)
+			if (l->team == e->team || laser_far(li, e->pos, &e->shape))
 				continue;
 			for (int s = 0; s < l->nseg; s++) {
 				if (aos_shape_hit(l->seg[s].pos, e->pos, &l->seg[s].shape, &e->shape, l->angle, e->angle)) {
@@ -1095,8 +1153,11 @@ static void pass_laser_enemy(aos_world *w)
 					break;
 			}
 		}
-		if (dead && !enemy_on_killed(w, k))
-			enemy_erase(w, k--);
+		if (dead) {
+			if (!enemy_on_killed(w, k))
+				enemy_erase(w, k--);
+			laser_boxes(w);
+		}
 	}
 }
 

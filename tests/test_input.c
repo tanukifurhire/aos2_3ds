@@ -1,5 +1,6 @@
 /* Host-side tests for aos_input. Build: see tests/run_tests.sh */
 #include "../src/input/aos_input.h"
+#include "../src/modes/save.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -263,6 +264,177 @@ static void test_fuzz(void)
 	}
 }
 
+/* ---- rebinding (aos_binds) ---- */
+
+static void test_binds_table(void)
+{
+	aos_binds b;
+	aos_binds_default(&b);
+	CHECK(aos_binds_valid(&b), "default valid");
+	CHECK(b.btn[AOS_ACT_DASH] == AOS_BTN_L && b.btn[AOS_ACT_SHIELD] == AOS_BTN_R && b.btn[AOS_ACT_WEAPON_A] == AOS_BTN_A &&
+	          b.btn[AOS_ACT_WEAPON_B] == AOS_BTN_B && b.btn[AOS_ACT_SPECIAL_A] == AOS_BTN_X &&
+	          b.btn[AOS_ACT_SPECIAL_B] == AOS_BTN_Y,
+	      "default = L Dash, R Shield, A/B weapons, X/Y specials");
+	/* default map: physical button -> the logical bit of the same name */
+	static const struct {
+		int btn;
+		uint32_t raw;
+	} m[] = {{AOS_BTN_L, L},         {AOS_BTN_R, R},         {AOS_BTN_A, AOS_RAW_A}, {AOS_BTN_B, AOS_RAW_B},
+	         {AOS_BTN_X, AOS_RAW_X}, {AOS_BTN_Y, AOS_RAW_Y}, {AOS_BTN_SELECT, 0}};
+	for (unsigned i = 0; i < sizeof m / sizeof m[0]; i++)
+		CHECK(aos_binds_map(&b, AOS_PHYS(m[i].btn)) == m[i].raw, "default map %s", aos_btn_name(m[i].btn));
+	CHECK(aos_binds_map(&b, 0x7f) == 0x3f, "all buttons");
+	CHECK(aos_binds_current()->btn[AOS_ACT_DASH] == AOS_BTN_L, "current starts at the defaults");
+
+	/* free button: just moves, the old one becomes free */
+	CHECK(aos_binds_assign(&b, AOS_ACT_DASH, AOS_BTN_SELECT) == -1 && b.btn[AOS_ACT_DASH] == AOS_BTN_SELECT, "to free");
+	CHECK(aos_binds_action(&b, AOS_BTN_L) == -1 && aos_binds_map(&b, AOS_PHYS(AOS_BTN_L)) == 0, "L now free");
+	CHECK(aos_binds_map(&b, AOS_PHYS(AOS_BTN_SELECT)) == L, "SELECT = Dash");
+	/* conflict: the two actions swap */
+	CHECK(aos_binds_assign(&b, AOS_ACT_WEAPON_A, AOS_BTN_Y) == AOS_ACT_SPECIAL_B, "conflict reports the other action");
+	CHECK(b.btn[AOS_ACT_WEAPON_A] == AOS_BTN_Y && b.btn[AOS_ACT_SPECIAL_B] == AOS_BTN_A && aos_binds_valid(&b), "swapped");
+	CHECK(aos_binds_assign(&b, AOS_ACT_WEAPON_A, AOS_BTN_Y) == -1 && b.btn[AOS_ACT_WEAPON_A] == AOS_BTN_Y,
+	      "same button: no-op");
+	CHECK(aos_binds_assign(&b, AOS_ACT_COUNT, AOS_BTN_A) == -1 && aos_binds_assign(&b, 0, AOS_BTN_COUNT) == -1, "range");
+	/* any sequence of assignments keeps a valid table */
+	srand(7);
+	for (int i = 0; i < 20000; i++) {
+		aos_binds_assign(&b, rand() % AOS_ACT_COUNT, rand() % AOS_BTN_COUNT);
+		if (!aos_binds_valid(&b)) {
+			CHECK(0, "assign broke the table at %d", i);
+			break;
+		}
+	}
+	/* invalid tables are refused by set_current (defaults instead) */
+	aos_binds bad = {{AOS_BTN_A, AOS_BTN_A, AOS_BTN_B, AOS_BTN_X, AOS_BTN_Y, AOS_BTN_L}};
+	CHECK(!aos_binds_valid(&bad), "duplicate invalid");
+	bad.btn[1] = 9;
+	CHECK(!aos_binds_valid(&bad), "out of range invalid");
+	aos_binds_set_current(&b);
+	CHECK(!memcmp(aos_binds_current(), &b, sizeof b), "set current");
+	aos_binds_set_current(&bad);
+	aos_binds d;
+	aos_binds_default(&d);
+	CHECK(!memcmp(aos_binds_current(), &d, sizeof d), "invalid -> defaults");
+}
+
+/* the chord and the double tap follow the Dash / Shield buttons wherever they are bound */
+static void test_binds_chord_double_tap(void)
+{
+	aos_binds b;
+	aos_binds_default(&b);
+	aos_binds_assign(&b, AOS_ACT_DASH, AOS_BTN_A);   /* Dash on A (Weapon A -> L) */
+	aos_binds_assign(&b, AOS_ACT_SHIELD, AOS_BTN_B); /* Shield on B (Weapon B -> R) */
+	CHECK(b.btn[AOS_ACT_WEAPON_A] == AOS_BTN_L && b.btn[AOS_ACT_WEAPON_B] == AOS_BTN_R, "weapons on the shoulders");
+	const uint32_t pa = AOS_PHYS(AOS_BTN_A), pb = AOS_PHYS(AOS_BTN_B), pl = AOS_PHYS(AOS_BTN_L), pr = AOS_PHYS(AOS_BTN_R);
+	/* A then A+B a frame later = one Shield, no Dash */
+	aos_input s = fresh(3, 15);
+	uint32_t f[] = {pa, pa | pb, pa | pb, pa | pb, pa | pb, 0}, ev[6], held[6];
+	for (int i = 0; i < 6; i++)
+		f[i] = aos_binds_map(&b, f[i]);
+	uint32_t all = run(&s, f, 6, ev, held);
+	CHECK(all == AOS_EV_SHIELD && ev[1] == AOS_EV_SHIELD && held[4] == AOS_HELD_SHIELD, "A+B = shield (got %x)", all);
+	/* A, A = re-dash */
+	s = fresh(3, 15);
+	uint32_t g[] = {pa, 0, 0, pa, pa, pa, pa, 0}, ev2[8], held2[8];
+	for (int i = 0; i < 8; i++)
+		g[i] = aos_binds_map(&b, g[i]);
+	run(&s, g, 8, ev2, held2);
+	CHECK(ev2[1] == AOS_EV_DASH && ev2[6] == AOS_EV_HYPER_DASH && (held2[6] & AOS_HELD_HYPER_DASH), "A,A = hyper dash");
+	/* L / R now fire the weapons at once, no chord */
+	s = fresh(3, 15);
+	uint32_t h[] = {pl | pr, 0}, ev3[2], held3[2];
+	for (int i = 0; i < 2; i++)
+		h[i] = aos_binds_map(&b, h[i]);
+	run(&s, h, 2, ev3, held3);
+	CHECK(ev3[0] == (AOS_EV_WEAPON_A | AOS_EV_WEAPON_B) && held3[0] == (AOS_HELD_WEAPON_A | AOS_HELD_WEAPON_B),
+	      "L+R = both weapons (got %x)", ev3[0]);
+	/* the same logical input through default vs remapped buttons gives identical events */
+	aos_binds def;
+	aos_binds_default(&def);
+	aos_input s1 = fresh(3, 15), s2 = fresh(3, 15);
+	srand(99);
+	uint32_t p1 = 0;
+	for (int i = 0; i < 200000; i++) {
+		if (rand() % 3)
+			p1 ^= 1u << (rand() % 6);
+		uint32_t q = 0;
+		for (int a = 0; a < AOS_ACT_COUNT; a++)
+			if (aos_binds_map(&def, p1) & (1u << a))
+				q |= AOS_PHYS(b.btn[a]);
+		aos_input_out o1 = aos_input_update(&s1, aos_binds_map(&def, p1));
+		aos_input_out o2 = aos_input_update(&s2, aos_binds_map(&b, q));
+		if (o1.events != o2.events || o1.held != o2.held) {
+			CHECK(0, "remapped stream differs at %d", i);
+			return;
+		}
+	}
+	CHECK(1, "remapped stream");
+}
+
+/* ---- the controls block of the progress save (save.h format 2) ---- */
+
+static uint32_t crc32_ref(const uint8_t *p, size_t n)
+{
+	uint32_t c = 0xffffffffu;
+	for (size_t i = 0; i < n; i++) {
+		c ^= p[i];
+		for (int k = 0; k < 8; k++)
+			c = (c >> 1) ^ (0xedb88320u & (0u - (c & 1u)));
+	}
+	return ~c;
+}
+
+static void test_save_controls(void)
+{
+	static aos_save S, T;
+	aos_save_defaults(&S);
+	aos_binds d;
+	aos_binds_default(&d);
+	CHECK(!memcmp(S.binds, d.btn, sizeof S.binds), "save defaults = default binds");
+	for (int c = 0; c < AOS_SAVE_CHARS; c++)
+		CHECK(S.hyperLayout[c][0] == 0xff, "layout defaults");
+	/* custom controls round trip */
+	aos_binds b = d;
+	aos_binds_assign(&b, AOS_ACT_DASH, AOS_BTN_X);
+	aos_binds_assign(&b, AOS_ACT_SHIELD, AOS_BTN_SELECT);
+	memcpy(S.binds, b.btn, sizeof S.binds);
+	const uint8_t lay[5] = {1, 0, 3, 2, 4};
+	memcpy(S.hyperLayout[10], lay, 5);
+	S.wins = 77;
+	static uint8_t buf[AOS_SAVE_FILE_BYTES];
+	size_t n = aos_save_encode(&S, buf, sizeof buf);
+	CHECK(n == AOS_SAVE_FILE_BYTES && buf[4] == 2, "format 2, %u bytes", (unsigned)n);
+	CHECK(aos_save_decode(&T, buf, n) == 1 && !memcmp(T.binds, b.btn, sizeof T.binds) &&
+	          !memcmp(T.hyperLayout[10], lay, 5) && T.hyperLayout[3][0] == 0xff && T.wins == 77,
+	      "controls round trip");
+	/* old (format 1) file: everything else loads, controls are the defaults */
+	static uint8_t v1[AOS_SAVE_FILE_BYTES_V1];
+	memcpy(v1, buf, sizeof v1);
+	const uint32_t pl = AOS_SAVE_FILE_BYTES_V1 - 16, crc = crc32_ref(v1 + 16, pl);
+	v1[4] = 1, v1[5] = 0;
+	for (int i = 0; i < 4; i++) {
+		v1[8 + i] = (uint8_t)(pl >> (8 * i));
+		v1[12 + i] = (uint8_t)(crc >> (8 * i));
+	}
+	CHECK(aos_save_decode(&T, v1, sizeof v1) == 1 && T.wins == 77 && !memcmp(T.binds, d.btn, sizeof T.binds) &&
+	          T.hyperLayout[10][0] == 0xff && !T.dirty,
+	      "format 1 save loads with default controls");
+	/* a damaged controls block (crc still fine): bad rows fall back one by one */
+	S.binds[0] = S.binds[1];
+	const uint8_t badlay[5] = {4, 0, 1, 2, 3}; /* centre moved: invalid */
+	memcpy(S.hyperLayout[11], badlay, 5);
+	n = aos_save_encode(&S, buf, sizeof buf);
+	CHECK(aos_save_decode(&T, buf, n) == 1 && !memcmp(T.binds, d.btn, sizeof T.binds) && T.hyperLayout[11][0] == 0xff &&
+	          !memcmp(T.hyperLayout[10], lay, 5),
+	      "invalid binds / layout -> defaults");
+	/* file round trip */
+	memcpy(S.binds, b.btn, sizeof S.binds);
+	CHECK(aos_save_write_file(&S, "build/tests", "build/tests/ctl_progress.sav") == 1, "write");
+	CHECK(aos_save_load_file(&T, "build/tests/ctl_progress.sav") == 1 && !memcmp(T.binds, b.btn, sizeof T.binds), "load");
+	remove("build/tests/ctl_progress.sav");
+}
+
 int main(void)
 {
 	test_dash_resolves_after_window();
@@ -282,6 +454,9 @@ int main(void)
 	test_l_after_r_joins_shield();
 	test_long_hold_no_overflow();
 	test_fuzz();
+	test_binds_table();
+	test_binds_chord_double_tap();
+	test_save_controls();
 	printf("%d checks, %d failures\n", checks, failures);
 	return failures != 0;
 }

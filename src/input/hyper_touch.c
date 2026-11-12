@@ -65,27 +65,134 @@ const ht_move *ht_slot(int chara, int slot)
 	return &slots[chara][slot];
 }
 
-int ht_pos_slot(int chara, int pos)
+static int lay_chara(int chara) { return chara == AOS_CH_SUMIKA2 ? AOS_CH_SUMIKA : chara; }
+
+void ht_layout_default(int chara, uint8_t out[HT_NSLOT])
 {
-	if (chara < 0 || chara >= AOS_NUM_CHARS || pos < 0 || pos >= HT_NSLOT)
-		return pos;
+	for (int k = 0; k < HT_NSLOT; k++)
+		out[k] = (uint8_t)k;
+	chara = lay_chara(chara);
+	if (chara < 0 || chara >= AOS_NUM_CHARS)
+		return;
 	const ht_move *s = slots[chara];
 	/* left/right are under the thumbs: an empty one takes a top/bottom move (bottom first), so the gap ends up at
 	 * the top or bottom */
 	const int side[2] = {HT_LEFT, HT_RIGHT};
-	int donor[2] = {-1, -1};
 	bool used_d = false, used_u = false;
 	for (int i = 0; i < 2; i++)
 		if (!s[side[i]].key) {
+			int donor = -1;
 			if (s[HT_DOWN].key && !used_d)
-				donor[i] = HT_DOWN, used_d = true;
+				donor = HT_DOWN, used_d = true;
 			else if (s[HT_UP].key && !used_u)
-				donor[i] = HT_UP, used_u = true;
+				donor = HT_UP, used_u = true;
+			if (donor >= 0) {
+				out[side[i]] = (uint8_t)donor;
+				out[donor] = (uint8_t)side[i];
+			}
 		}
-	for (int i = 0; i < 2; i++)
-		if (donor[i] >= 0 && (pos == side[i] || pos == donor[i]))
-			return pos == side[i] ? donor[i] : side[i];
-	return pos;
+}
+
+bool ht_layout_valid(const uint8_t p[HT_NSLOT])
+{
+	unsigned seen = 0;
+	for (int k = 0; k < HT_NSLOT; k++) {
+		if (p[k] >= HT_NSLOT || (seen & (1u << p[k])))
+			return false;
+		seen |= 1u << p[k];
+	}
+	return p[HT_CENTER] == HT_CENTER;
+}
+
+/* pos -> slot and slot -> pos per character; lay_ok: initialised (the defaults, filled on first use) */
+static uint8_t lay_ps[AOS_NUM_CHARS][HT_NSLOT], lay_sp[AOS_NUM_CHARS][HT_NSLOT];
+static bool lay_ok;
+
+static void lay_store(int c, const uint8_t p[HT_NSLOT])
+{
+	for (int k = 0; k < HT_NSLOT; k++) {
+		lay_ps[c][k] = p[k];
+		lay_sp[c][p[k]] = (uint8_t)k;
+	}
+}
+
+void ht_layout_reset_all(void)
+{
+	for (int c = 0; c < AOS_NUM_CHARS; c++) {
+		uint8_t d[HT_NSLOT];
+		ht_layout_default(c, d);
+		lay_store(c, d);
+	}
+	lay_ok = true;
+}
+
+static void lay_init(void)
+{
+	if (!lay_ok)
+		ht_layout_reset_all();
+}
+
+int ht_pos_slot(int chara, int pos)
+{
+	if (pos < 0 || pos >= HT_NSLOT)
+		return pos;
+	chara = lay_chara(chara);
+	if (chara < 0 || chara >= AOS_NUM_CHARS)
+		return pos;
+	lay_init();
+	return lay_ps[chara][pos];
+}
+
+int ht_slot_pos(int chara, int slot)
+{
+	if (slot < 0 || slot >= HT_NSLOT)
+		return slot;
+	chara = lay_chara(chara);
+	if (chara < 0 || chara >= AOS_NUM_CHARS)
+		return slot;
+	lay_init();
+	return lay_sp[chara][slot];
+}
+
+void ht_layout_get(int chara, uint8_t out[HT_NSLOT])
+{
+	for (int k = 0; k < HT_NSLOT; k++)
+		out[k] = (uint8_t)ht_pos_slot(chara, k);
+}
+
+void ht_layout_set(int chara, const uint8_t p[HT_NSLOT])
+{
+	chara = lay_chara(chara);
+	if (chara < 0 || chara >= AOS_NUM_CHARS)
+		return;
+	lay_init();
+	uint8_t d[HT_NSLOT];
+	if (!p || !ht_layout_valid(p)) {
+		ht_layout_default(chara, d);
+		p = d;
+	}
+	lay_store(chara, p);
+}
+
+bool ht_layout_swap(int chara, int a, int b)
+{
+	if (a < 0 || b < 0 || a >= HT_NSLOT || b >= HT_NSLOT || a == HT_CENTER || b == HT_CENTER || a == b)
+		return false;
+	uint8_t p[HT_NSLOT];
+	ht_layout_get(chara, p);
+	uint8_t t = p[a];
+	p[a] = p[b];
+	p[b] = t;
+	ht_layout_set(chara, p);
+	return true;
+}
+
+bool ht_layout_is_default(int chara)
+{
+	uint8_t p[HT_NSLOT], d[HT_NSLOT];
+	ht_layout_get(chara, p);
+	ht_layout_default(chara, d);
+	return !memcmp(p, d, sizeof p);
 }
 
 bool ht_ready(const aos_world *w, int player, int slot)

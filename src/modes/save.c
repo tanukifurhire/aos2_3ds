@@ -1,6 +1,10 @@
 /* Progress save: game.sys + game.rkg images in one versioned file (save.h). */
 #include "save.h"
 
+#include "../input/aos_input.h" /* AOS_ACT_* / AOS_BTN_* constants only */
+
+_Static_assert(AOS_SAVE_BINDS == AOS_ACT_COUNT, "binds block");
+
 #include <stdio.h>
 #include <string.h>
 #include <sys/stat.h>
@@ -35,7 +39,19 @@ void aos_save_defaults(aos_save *s) /* FUN_007c4450 + FUN_007c4480 (game.sys mis
 	for (size_t i = 0; i < sizeof bgms; i++)
 		s->bgmOpen[bgms[i]] = 1;
 	aos_save_rank_defaults(s);
+	aos_save_controls_defaults(s);
 	s->dirty = 1; /* FUN_007c4480 writes the fresh file (FUN_007c47f0) */
+}
+
+void aos_save_controls_defaults(aos_save *s)
+{
+	/* = aos_binds_default (header constants only: save.c links without aos_input.c) */
+	static const uint8_t def[AOS_SAVE_BINDS] = {
+		[AOS_ACT_DASH] = AOS_BTN_L,     [AOS_ACT_SHIELD] = AOS_BTN_R,    [AOS_ACT_WEAPON_A] = AOS_BTN_A,
+		[AOS_ACT_WEAPON_B] = AOS_BTN_B, [AOS_ACT_SPECIAL_A] = AOS_BTN_X, [AOS_ACT_SPECIAL_B] = AOS_BTN_Y,
+	};
+	memcpy(s->binds, def, sizeof s->binds);
+	memset(s->hyperLayout, 0xff, sizeof s->hyperLayout);
 }
 
 void aos_save_achieve(aos_save *s, int id)
@@ -71,7 +87,49 @@ static uint32_t crc32(const uint8_t *p, size_t n)
 	return ~c;
 }
 
-#define PAYLOAD (AOS_SAVE_SYS_BYTES + AOS_SAVE_RKG_BYTES + 4)
+#define PAYLOAD_V1 (AOS_SAVE_SYS_BYTES + AOS_SAVE_RKG_BYTES + 4)
+#define PAYLOAD (PAYLOAD_V1 + AOS_SAVE_CTL_BYTES)
+
+static void ctl_put(const aos_save *s, uint8_t *b)
+{
+	memset(b, 0, AOS_SAVE_CTL_BYTES);
+	b[0] = 1;
+	b[1] = AOS_SAVE_BINDS;
+	memcpy(b + 2, s->binds, AOS_SAVE_BINDS);
+	memcpy(b + 2 + AOS_SAVE_BINDS, s->hyperLayout, sizeof s->hyperLayout);
+}
+
+/* a row is kept only if it is a permutation with the centre (4) on the centre, else default (0xff) */
+static int layout_ok(const uint8_t *p)
+{
+	unsigned seen = 0;
+	for (int k = 0; k < AOS_SAVE_HT_SLOTS; k++) {
+		if (p[k] >= AOS_SAVE_HT_SLOTS || (seen & (1u << p[k])))
+			return 0;
+		seen |= 1u << p[k];
+	}
+	return p[AOS_SAVE_HT_SLOTS - 1] == AOS_SAVE_HT_SLOTS - 1;
+}
+
+static void ctl_get(aos_save *s, const uint8_t *b)
+{
+	if (b[0] != 1 || b[1] != AOS_SAVE_BINDS)
+		return; /* unknown block version: defaults */
+	unsigned used = 0; /* = aos_binds_valid */
+	int ok = 1;
+	for (int a = 0; a < AOS_SAVE_BINDS; a++) {
+		if (b[2 + a] >= AOS_BTN_COUNT || (used & (1u << b[2 + a])))
+			ok = 0;
+		else
+			used |= 1u << b[2 + a];
+	}
+	if (ok)
+		memcpy(s->binds, b + 2, AOS_SAVE_BINDS);
+	const uint8_t *l = b + 2 + AOS_SAVE_BINDS;
+	for (int c = 0; c < AOS_SAVE_CHARS; c++)
+		if (layout_ok(l + c * AOS_SAVE_HT_SLOTS))
+			memcpy(s->hyperLayout[c], l + c * AOS_SAVE_HT_SLOTS, AOS_SAVE_HT_SLOTS);
+}
 
 static void sys_put(const aos_save *s, uint8_t *b) /* layout of DAT_0087b728 */
 {
@@ -136,6 +194,7 @@ size_t aos_save_encode(const aos_save *s, uint8_t *buf, size_t cap)
 	sys_put(s, p);
 	rkg_put(s, p + AOS_SAVE_SYS_BYTES);
 	put32(p + AOS_SAVE_SYS_BYTES + AOS_SAVE_RKG_BYTES, s->achievements);
+	ctl_put(s, p + PAYLOAD_V1);
 	memcpy(buf, "A2SV", 4);
 	put16(buf + 4, AOS_SAVE_FORMAT);
 	put16(buf + 6, 0x5a2);
@@ -150,12 +209,14 @@ int aos_save_decode(aos_save *s, const uint8_t *buf, size_t len)
 	if (len < 16 || memcmp(buf, "A2SV", 4) != 0 || get16(buf + 4) < 1)
 		return 0;
 	uint32_t n = get32(buf + 8);
-	if (n < PAYLOAD || len - 16 < n || crc32(buf + 16, n) != get32(buf + 12))
+	if (n < PAYLOAD_V1 || len - 16 < n || crc32(buf + 16, n) != get32(buf + 12))
 		return 0;
 	const uint8_t *p = buf + 16;
 	sys_get(s, p);
 	rkg_get(s, p + AOS_SAVE_SYS_BYTES);
 	s->achievements = get32(p + AOS_SAVE_SYS_BYTES + AOS_SAVE_RKG_BYTES);
+	if (get16(buf + 4) >= 2 && n >= PAYLOAD) /* format 1 (no controls block): the defaults stay */
+		ctl_get(s, p + PAYLOAD_V1);
 	s->dirty = 0;
 	return 1;
 }

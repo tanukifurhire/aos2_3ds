@@ -1794,13 +1794,19 @@ static void fx_draw(aos_world *w, aos_effect *e) /* FUN_00509ac0 (visual only) *
 		int f = (e->age / 3) * 2;
 		if (f > 4) f = 4;
 		f += e->age % 2;
-		snprintf(name, sizeof name, blue ? "sb_flameb%d" : "sb_flamer%d", f);
+		static const char *const fl[2][6] = {{"sb_flamer0", "sb_flamer1", "sb_flamer2", "sb_flamer3", "sb_flamer4", "sb_flamer5"},
+		                                     {"sb_flameb0", "sb_flameb1", "sb_flameb2", "sb_flameb3", "sb_flameb4", "sb_flameb5"}};
+		const char *tn = name;
+		if (f >= 0 && f < 6) /* literal names: no snprintf per draw (perf) */
+			tn = fl[blue][f];
+		else
+			snprintf(name, sizeof name, blue ? "sb_flameb%d" : "sb_flamer%d", f);
 		float half = (big ? 72.0f : 60.0f) * e->scale, rot = e->rotation;
 		if (half < (big ? 30.0f : 25.0f)) {
 			half = big ? 30.0f : 25.0f;
 			rot = e->moveDir; /* the original writes +0x38 = +0x34 here; draw-local in the port */
 		}
-		aos_dcmd *c = fx_quad(e, name, bank, half);
+		aos_dcmd *c = fx_quad(e, tn, bank, half);
 		c->rotZ = aos_rad2bam(rot);
 		if (big) {
 			float g = 128.0f * e->alpha / 255.0f;

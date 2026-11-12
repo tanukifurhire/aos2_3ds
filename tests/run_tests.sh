@@ -5,7 +5,7 @@ cd "$(dirname "$0")/.."
 ZIG=tools/zig/zig-x86_64-windows-0.14.1/zig.exe
 mkdir -p build/tests
 "$ZIG" cc -std=c99 -Wall -Wextra -Werror -O2 -fsanitize=undefined -fno-sanitize-recover=all \
-  src/input/aos_input.c tests/test_input.c -o build/tests/test_input.exe
+  src/input/aos_input.c src/modes/save.c tests/test_input.c -o build/tests/test_input.exe
 build/tests/test_input.exe
 # touch hyper buttons -> input masks, every slot of every character through the real dispatch (hyper_touch.h)
 "$ZIG" cc -std=gnu11 -Wall -Wextra -Werror -O1 -g -fsanitize=undefined -fno-sanitize-recover=all \
@@ -18,6 +18,9 @@ build/tests/test_wav.exe
 "$ZIG" cc -std=c99 -Wall -Wextra -Werror -O1 -fsanitize=undefined -fno-sanitize-recover=all \
   src/sim/rng.c tests/test_rng.c -o build/tests/test_rng.exe
 build/tests/test_rng.exe
+# lobby browser data: LAN announce / UDS beacon appdata codec, nicknames, list merge / signal / expiry (src/net/lobby.c)
+"$ZIG" cc -std=c99 -Wall -Wextra -Werror -O1 -g -fsanitize=undefined -fno-sanitize-recover=all   src/net/lobby.c tests/test_lobby.c -o build/tests/test_lobby.exe
+build/tests/test_lobby.exe
 "$ZIG" cc -std=gnu11 -Wall -Wextra -Werror -O1 -g -fsanitize=undefined -fno-sanitize-recover=all \
   src/sim/*.c src/sim/chars/*.c tests/test_nath.c -lm -o build/tests/test_nath.exe
 build/tests/test_nath.exe
@@ -95,7 +98,7 @@ build/tests/test_flow_glue.exe build/tests
   src/app/strings.c src/app/bmfont.c src/app/scene_core.c tests/test_text.c -lm -o build/tests/test_text.exe
 build/tests/test_text.exe
 "$ZIG" cc -std=gnu11 -Wall -Wextra -Werror -O1 -g -fsanitize=undefined -fno-sanitize-recover=all \
-  src/app/menu.c src/app/strings.c src/app/bmfont.c src/app/scene_core.c src/app/ranking.c src/app/modes_flow.c src/modes/ladder.c src/modes/score.c src/modes/save.c src/sim/*.c src/sim/chars/*.c tests/test_menu.c -lm -o build/tests/test_menu.exe
+  src/app/menu.c src/app/controls.c src/input/aos_input.c src/input/hyper_touch.c src/app/strings.c src/app/bmfont.c src/app/scene_core.c src/app/ranking.c src/app/modes_flow.c src/modes/ladder.c src/modes/score.c src/modes/save.c src/sim/*.c src/sim/chars/*.c tests/test_menu.c -lm -o build/tests/test_menu.exe
 build/tests/test_menu.exe
 # Part B scenes: ArcSelect / VS Select / Result + continue / pause menu logic (src/app/select.c)
 "$ZIG" cc -std=gnu11 -Wall -Wextra -Werror -O1 -g -fsanitize=undefined -fno-sanitize-recover=all \

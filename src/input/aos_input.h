@@ -17,6 +17,15 @@
  *
  * The module is a pure function of (state, raw buttons) with no clock, I/O or
  * allocation, so it is deterministic and safe to re-simulate for rollback.
+ *
+ * Rebinding (port, 2026-11-13): the AOS_RAW_* bits are *logical* buttons (the
+ * Dash button, the Shield button, ...). A binding table (aos_binds) maps each
+ * action to one physical button (A B X Y L R SELECT; the Old 3DS has no ZL/ZR/
+ * C-stick, Circle Pad / D-pad stay movement, START stays Pause) and
+ * aos_binds_map turns physical bits into logical ones. So the L+R chord is
+ * "Dash button + Shield button" and the double tap is "Dash button twice"
+ * wherever they are bound. Netplay sends the resulting game mask, so rebinding
+ * is local and rollback-safe.
  */
 #ifndef AOS_INPUT_H
 #define AOS_INPUT_H
@@ -27,15 +36,51 @@
 extern "C" {
 #endif
 
-/* Device-agnostic raw button bits (see aos_input_from_3ds for libctru keys). */
+/* Logical button bits fed to aos_input_update (named after the default buttons; aos_binds_map makes them). */
 enum {
-	AOS_RAW_L = 1u << 0,
-	AOS_RAW_R = 1u << 1,
-	AOS_RAW_A = 1u << 2,
-	AOS_RAW_B = 1u << 3,
-	AOS_RAW_X = 1u << 4,
-	AOS_RAW_Y = 1u << 5,
+	AOS_RAW_L = 1u << 0, /* the Dash button */
+	AOS_RAW_R = 1u << 1, /* the Shield button */
+	AOS_RAW_A = 1u << 2, /* Weapon A */
+	AOS_RAW_B = 1u << 3, /* Weapon B */
+	AOS_RAW_X = 1u << 4, /* Special A */
+	AOS_RAW_Y = 1u << 5, /* Special B */
 };
+
+/* Actions that can be rebound; AOS_RAW_* bit of action a = 1 << a. */
+enum {
+	AOS_ACT_DASH,
+	AOS_ACT_SHIELD,
+	AOS_ACT_WEAPON_A,
+	AOS_ACT_WEAPON_B,
+	AOS_ACT_SPECIAL_A,
+	AOS_ACT_SPECIAL_B,
+	AOS_ACT_COUNT
+};
+/* Physical buttons an action can sit on (Old 3DS); AOS_PHYS bit of button b = 1 << b. */
+enum { AOS_BTN_A, AOS_BTN_B, AOS_BTN_X, AOS_BTN_Y, AOS_BTN_L, AOS_BTN_R, AOS_BTN_SELECT, AOS_BTN_COUNT };
+#define AOS_PHYS(b) (1u << (b))
+
+typedef struct {
+	uint8_t btn[AOS_ACT_COUNT]; /* AOS_BTN_* per action, all different */
+} aos_binds;
+
+void aos_binds_default(aos_binds *b); /* L Dash, R Shield, A/B weapons, X/Y specials */
+/* Every action on a valid button, no button used twice. */
+int aos_binds_valid(const aos_binds *b);
+/* Put action act on button btn. If another action had btn it takes act's old button (a swap); returns that
+ * action, or -1 if btn was free / nothing changed. */
+int aos_binds_assign(aos_binds *b, int act, int btn);
+/* Action bound to button btn, -1 none. */
+int aos_binds_action(const aos_binds *b, int btn);
+/* Physical bits (AOS_PHYS) -> logical bits (AOS_RAW_*). */
+uint32_t aos_binds_map(const aos_binds *b, uint32_t phys);
+/* Short button name ("A", "L", "SELECT"). */
+const char *aos_btn_name(int btn);
+
+/* The bindings in use (aos_input_from_3ds; default until the save is applied). Set copies after validating
+ * (an invalid table = defaults). */
+const aos_binds *aos_binds_current(void);
+void aos_binds_set_current(const aos_binds *b);
 
 /* One-shot events (edge triggered, emitted on the frame they resolve). */
 enum {
@@ -101,7 +146,9 @@ void aos_input_init(aos_input *s, const aos_input_cfg *cfg /* NULL = defaults */
 aos_input_out aos_input_update(aos_input *s, uint32_t raw_held);
 
 #ifdef __3DS__
-/* Convert libctru hidKeysHeld() bits into AOS_RAW_* bits. */
+/* libctru hidKeysHeld() bits -> AOS_PHYS bits. */
+uint32_t aos_input_phys_from_3ds(uint32_t keys_held);
+/* libctru hidKeysHeld() bits -> logical AOS_RAW_* bits through the current bindings. */
 uint32_t aos_input_from_3ds(uint32_t keys_held);
 #endif
 

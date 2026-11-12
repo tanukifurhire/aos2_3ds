@@ -392,3 +392,92 @@ rest).
 
 Also found: the barrier bubble (shield, burst shield, hyper/accel barriers: charaCmnA shield00-03,
 FUN_006b2200) was never ported; now drawn in `aos_draw_world` right after the players.
+
+## Object-spam lag (2026-11-13: "big lag when many objects spawn" on a real Old 3DS)
+
+Question: is runtime allocation the cause (suggested fix: a memory manager)? Measured first.
+
+### Allocation audit
+- `src/sim`: no allocator calls at all; every object kind is a fixed pool inside `aos_world` (beam, missile, hitbox,
+  laser, enemy, effect, whip, particle, spark, popup), the draw list `aos_dl` is a static 4096-entry array, texture
+  names are interned into a static table.
+- Platform: sprite batcher (`sprbatch.c`) = one 8192-quad vertex buffer allocated once; atlases, stage geometry, SE PCM,
+  HUD/panel textures are loaded at match start and freed at match exit; `spritebank_get` lookups are cached per
+  texture id (render.c `lookup`). The only mid-match loads were **SE files on first use** (below).
+- **Proof, profile builds**: `-Wl,--wrap` on newlib's malloc family (`malloc/calloc/realloc/memalign/free` and the
+  `_r` variants newlib uses internally, e.g. in fopen) and libctru's `linearAlloc/linearMemAlign/linearRealloc/
+  linearFree/vram*` (build.sh `LDPROF`, prof.c "heap traffic counter"). Every match frame after the first two must
+  make zero calls on the game thread; offenders are logged as `heap: N allocator calls in match frame F (first
+  caller <addr>)` (resolve with addr2line on the .elf), the panel's memory line turns red and shows `allocfr`, and
+  each scenario summary ends with `heapFrames / heapOps / heapOther`. Result on all 10 spam scenarios below:
+  **heapFrames 0, heapOps 0**. `heapOther` ≈ 840 per match = the BGM stream thread (Tremor opening the Ogg track a few
+  frames into the match, then a few block reallocs) — not the game thread. The profiler's own float printf (newlib
+  dtoa buffers) is excluded.
+So allocation is not the cause and a memory manager would buy nothing; the counter now guards that it stays so.
+
+### Which characters spawn the most (host proxy `tests/perf_proxy.c`, mirrors, pinned hyper, 5400 frames)
+Peak live objects / draw commands per tick: Alte 1453 / 4070, Hime 966 / 1874, Nath 731 / 2646, Tsih 662 / 2405,
+Sham 647 / 3028, Iru 411, Kyoko 524, Sumika 2nd 493, Nanako 429. Average objects: Nath 252, Kyoko 179, Sham 162.
+
+### Measured causes (Azahar Old 3DS mode, profile build, Hard CPU mirrors on stage 5, hyper pinned, 2400 frames;
+list `build/perfagent/spam.txt` = `4 4 5 2400 1 2` … for Alte, Nath, Sham, Kyoko, Hime, Tsih, Nanako, Iru, Saki, Sora)
+1. **SE loaded from the SD card mid-match.** The per-match SE preload set came only from a CPU-vs-CPU replay, so
+   sounds that human play reaches were missing: status effects (crash17 0x15, jya05 0x26), burst knock-back (hit_f
+   0x19), Tsih 0x24/0x2c, Mira 0x07/0x1a, Kyoko 0x12, Sumika 8 ids incl. explosion1 (1.3 MB). Sham ×2 hit it:
+   `audio` max 15.6 ms, wall frame 34 ms for a 16 KB file in the emulator; a real SD card and a multi-100 KB file
+   are much slower (153 ms measured earlier for explosion1). Fix (audio.c): preload = ids each character's own code
+   can request (every `aos_se`/`aos_se_cd` literal in its chars/*.c) ∪ the replay set ∪ the engine's shared ids
+   (`SE_COMMON_MASK`: 6, 7, 8, 9, 0xb, 0xc, 0x15, 0x19, 0x26). +0-430 KB per character, Sumika +1.9 MB; linear free
+   at match start still ≥ 18 MB in these runs (worst case Suguri ×2 on Rain was 16.5 MB, its set grows by 86 KB).
+2. **snprintf per particle in the draw list** (`aos_particles_draw`: two `snprintf("sph%s…")` + name hash per
+   particle; newlib's vfprintf is thousands of instructions). Nath (434 particles) spent 1.6 ms avg / 6.1 ms max
+   building the draw list. Fix: the interned ids are cached per colour (looked up on first use, same interning
+   order), same for the trail effect's `<pfx>_rng0<k>`, Alte's `at_elect%02d`, Star Breaker's `sb_flame*`.
+   `aos_tex` gained a call-site pointer cache (verified by strcmp, so exact) in front of the hash.
+3. **Laser × target collision tests** (Tsih: lasers of many segments × summons; worst tick 23,925 shape tests,
+   20,160 in laser→enemy). Laser broad phase in objects.c: bounding box of all segment reaches per laser, skip a
+   laser for a target that is beyond it by reach + 2 on one axis — exactly the pairs `aos_shape_hit`'s own pre-check
+   would reject, so results are identical (golden check + poison identical). Worst tick 23,925 → 3,765 pairs.
+4. **2D submit per quad** (render.c): `sincosf` instead of `sinf` + `cosf`; draws whose premultiplied vertex colour
+   is 0 (tint alpha 0 / black additive — fade-outs; up to 388 per frame in Tsih) are skipped (exactly invisible with
+   the batcher's ONE / ONE_MINUS_SRC_ALPHA blend); solid `$white` quads (spark lines, speedlines) are culled
+   off-screen like sprites. Part of the 2D gain is profile-only (the covered-pixel counter reuses the sine/cosine).
+
+### Before → after (emulated µs avg/max; cpu = frame minus vsync wait)
+| mirror (stage 5, hyper pinned) | tick avg/max | draw list avg/max | 2D submit avg/max | audio max | cpu avg | cpu P99 / max |
+|---|---|---|---|---|---|---|
+| Alte ×2 | 221/1145 → 221/1211 | 509/2772 → 348/1904 | 731/2816 → 685/2716 | 69 → 113 | 4167 → **4022** | 7500/8311 → 6500/7281 |
+| Nath ×2 | 663/3886 → 647/2365 | 1642/6131 → 798/1972 | 1460/5186 → 1302/4934 | 118 → 70 | 6138 → **5119** | 15000/16468 → 10500/11695 |
+| Sham ×2 | 595/1784 → 579/1638 | 1911/7809 → 1650/5812 | 2299/6382 → 2127/5821 | 15613 → 71 | 7031 → **6567** | 15000/23928 → 13000/14914 |
+| Kyoko ×2 | 337/1999 → 336/1933 | 516/2237 → 442/1628 | 994/2493 → 946/2372 | 48 → 46 | 3974 → **3851** | 7000/7332 → 6500/6627 |
+| Hime ×2 | 179/1933 → 179/1998 | 324/2317 → 189/1723 | 537/2145 → 516/2009 | 125 → 125 | 3185 → **3016** | 6500/7004 → 6000/6196 |
+| Tsih ×2 | 933/7905 → 727/3076 | 1227/4976 → 1041/4231 | 1420/4676 → 1268/4336 | 190 → 169 | 5703 → **5194** | 12500/16790 → 10500/11747 |
+| Nanako ×2 | 398/1430 → 399/1491 | 1020/2592 → 764/1498 | 1520/3990 → 1453/3904 | 67 → 126 | 5204 → **4895** | 8500/9239 → 8500/8648 |
+| Iru ×2 | 289/1932 → 290/1998 | 571/2236 → 441/1696 | 971/2520 → 924/2418 | 69 → 128 | 3980 → **3796** | 7000/7822 → 6500/7320 |
+| Saki ×2 | 272/1932 → 271/1932 | 590/1775 → 339/1133 | 942/2615 → 909/2530 | 125 → 68 | 4025 → **3765** | 6500/6913 → 6500/6374 |
+| Sora ×2 | 256/1933 → 257/1933 | 758/2473 → 638/1795 | 876/2611 → 690/2229 | 170 → 192 | 4091 → **3788** | 7500/7394 → 6500/6584 |
+
+Frames with cpu > 16.7 ms: Sham 11 → 0 (the SE stall), Tsih 2 → 0, all others 0 → 0 — the emulated averages
+were already within budget. Real ARM11 ≈ 1.5-2× these: Sham/Nath peaks were 24-48 ms (now 15-30), averages 6-14 ms.
+The CPU cost now scales ~linearly with objects at roughly 1.5-3 µs per draw command to build + 1.5-2.5 µs per quad
+to submit (emulated); HUD (1.2-1.4 ms) and stage are constant.
+
+### What can only be GPU-bound on hardware (not modelled by Azahar: `gpu` reads a constant 0.34 ms)
+Covered sprite pixels per frame (avg / max, of which additive): Saki 603k / **3.28M** (2.87M), Sham 635k / 2.69M,
+Iru 239k / 2.46M (2.08M), Hime 337k / 2.40M (1.97M), Nath 491k / 2.31M, Alte 488k / 2.19M, Kyoko 585k / 2.13M;
+the screen is 96k px, so peaks are 22-34 layers of overdraw from big additive flashes/explosions. If the PICA200
+blends ~1 textured px per clock (≈ 270 Mpx/s; spec 4 px/clock, less with blending and texture fetch) that is
+8-12 ms at the peaks, ~0.5-2.4 ms on average; at 0.5 px/clock 16-24 ms. The GPU draws frame N while the CPU builds
+N+1, so a drop needs max(cpu, gpu) > 16.7 ms: plausible in Saki/Sham/Iru/Hime hyper flashes even with the CPU fixed.
+The profile build's `gpu` column (C3D_GetDrawingTime) is real on hardware: run this list there
+(`sdmc:/aos2_bench.txt`) to see whether those frames are GPU-limited. Possible fill reductions if so: trim big
+mostly-transparent frames to their opaque bounds (aos2pack), drop the 1-px-alpha halo layers of explosions at the
+3DS scale, or cap concurrent full-screen flashes (visual change, needs a decision).
+
+### Remaining
+- Pool erase memmove (order-preserving erase of missiles/beams/lasers/enemies inside the collision passes): worst
+  tick moves 307 KB (Alte/Tsih), FCRAM-bound on hardware (~1.5-3 ms in that tick). Converting to one-pass compaction
+  needs proof that no handler observes the pool mid-pass (as was done for effects); not done.
+- `aos_atan2` (double libm) per line/whip segment in the draw list (sparks, whips, speedlines): kept, since the
+  binary angle it feeds is part of the draw command.
+- Tick worst cases now ≤ 3.1 ms emulated (Tsih), drawlist ≤ 5.8 ms (Sham), 2D ≤ 5.8 ms (Sham).

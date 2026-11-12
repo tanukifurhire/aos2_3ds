@@ -1,9 +1,13 @@
-/* Local-wireless versus (2 consoles): connection mode, character select, stage select (host),
- * lobby and VS screens — SCENE_NET_SELECT — plus the blocking match runner. Port-only (the PC
- * online mode uses Steam lobbies); built from the VS Select's pieces (select_draw.c "selx_",
- * drawing from g_vs) so it looks like the offline select:
+/* Two-console versus (Local Wireless or LAN): connection mode, lobby browser, character select,
+ * stage select (host), lobby and VS screens — SCENE_NET_SELECT — plus the blocking match runner.
+ * Port-only (the PC online mode uses Steam lobbies); built from the VS Select's pieces
+ * (select_draw.c "selx_", drawing from g_vs) so it looks like the offline select:
  *
- *   MODE     Create Lobby (host, P1) / Quick Join (client, P2)          arcade command-mode bands
+ *   MODE     Create Lobby (host, P1) / Quick Join (client, P2) / View Lobbies; L/R or Left/Right
+ *            picks the transport (Local Wireless = ad-hoc UDS, LAN = same router via soc)
+ *   BROWSE   lobby list of the chosen transport (netb_*): host's character, nickname, stage,
+ *            transport badge, signal (Local Wireless), open / full / in match; refreshes live;
+ *            the highlighted host's art + stage on top. A / tap joins (client, P2) -> CHARS
  *   CHARS    character grid on the bottom screen, wheel + portrait on top (both screens)
  *   OPTIONS  colour / hyper control / accept, standing art on top
  *   STAGE    host only: stage cards + BGM, like VS Select
@@ -21,6 +25,7 @@
 
 #include "../platform/stage.h"
 #include "../sim/rng.h"
+#include "../stage/stage.h"
 #include "audio.h"
 #include "menu.h"
 #include "modes_flow.h"
@@ -42,12 +47,19 @@
 /* Port-internal scene id: the blocking match (netplay_match). */
 #define SCENE_NETPLAY_RUN 23
 
-enum { NS_MODE, NS_CHARS, NS_OPTIONS, NS_STAGE, NS_LINK, NS_WHITE, NS_VS, NS_GO, NS_ERROR };
+enum { NS_MODE, NS_BROWSE, NS_CHARS, NS_OPTIONS, NS_STAGE, NS_LINK, NS_WHITE, NS_VS, NS_GO, NS_ERROR };
 enum { OPT_COLOR, OPT_INPUT, OPT_ACCEPT, OPT_COUNT };
 
 static struct {
 	int st, t;
-	int mode;          /* MODE cursor: 0 host, 1 join */
+	int mode;          /* MODE cursor: 0 host, 1 quick join, 2 lobby list */
+	int kind;          /* transport: LOBBY_UDS / LOBBY_LAN (kept between visits) */
+	int lcur, ltop;    /* BROWSE cursor / first visible row */
+	uint32_t lkey_host, lkey_sess; /* BROWSE: the highlighted lobby (the list refreshes under it) */
+	int lstage;        /* BROWSE: stage of the highlighted lobby */
+	bool have_target;  /* client joining a lobby picked from the list */
+	lobby_entry target;
+	float browse_a;
 	bool host;
 	int me, op;        /* g_vs slots: host = 0 (P1), client = 1 */
 	int cur;           /* pool cursor of the local pick */
@@ -166,6 +178,7 @@ static void netsel_init(void)
 		N.cur = i < 0 ? 0 : i;
 		N.color = N.cmd = 0;
 		N.mode = 0;
+		N.have_target = false;
 		v->stage_cur = k < 0 ? 0 : k;
 		music_sel_set(0); /* "????" */
 	}
@@ -187,7 +200,7 @@ static void netsel_init(void)
 		v->cursor[p] = N.cur;
 		v->chara[p] = SEL_RANDOM;
 	}
-	N.mode_a = N.link_a = N.err_a = 0;
+	N.mode_a = N.link_a = N.err_a = N.browse_a = 0;
 	N.leave = 0;
 	N.row = OPT_ACCEPT;
 	if (!from_menu) { /* back from a match: same role, pick again (or read why it ended) */
@@ -212,7 +225,7 @@ static void netsel_init(void)
 static void netsel_exit(void)
 {
 	if (N.st != NS_GO)
-		netl_cancel();
+		net_shutdown(); /* leaves the lobby, stops scanning, frees soc / leaves local-comms mode */
 	selx_free();
 	announce_hide();
 }
@@ -232,8 +245,9 @@ static void enter_link(void)
 	}
 	N.stage = stage;
 	go(NS_LINK);
-	if (!netl_begin(N.host, N.pick, sel_color_resolve(N.pick, N.color), N.cmd, g_config.net_delay, stage, bgm)) {
-		show_error(netl_error(), N.host ? NS_STAGE : NS_OPTIONS);
+	if (!netl_begin(N.host, N.kind, !N.host && N.have_target ? &N.target : NULL, N.pick,
+	                sel_color_resolve(N.pick, N.color), N.cmd, g_config.net_delay, stage, bgm)) {
+		show_error(netl_error(), N.host ? NS_STAGE : N.have_target ? NS_BROWSE : NS_OPTIONS);
 		return;
 	}
 	ann(N.host ? "ANNOUNCE_NET_ACCEPT" : "ANNOUNCE_NET_CONNECT");
@@ -250,6 +264,116 @@ static void leave_link(void) /* B in LINK / VS: tell the other console, step bac
 	SE(1);
 }
 
+/* ================================================================ lobby browser */
+
+#define LIST_Y 50.0f   /* bottom screen: first row */
+#define ROW_H 32.0f
+#define ROWS 4
+
+static const char *kind_name(int k) { return k == LOBBY_LAN ? "LAN" : "LOCAL WIRELESS"; }
+
+static void browse_enter(void)
+{
+	set_role(false);
+	N.have_target = false;
+	N.lcur = N.ltop = 0;
+	N.lkey_host = N.lkey_sess = 0;
+	go(NS_BROWSE);
+	netb_begin(N.kind); /* a failure (no Wi-Fi, wireless off) shows inline; L/R still switches */
+	announce_show_text(tr("MENU_MULTIPLAYER_STARTMENU_SEARCHLOBBY_SUBTITLE"));
+}
+
+static void browse_switch(int kind)
+{
+	if (kind == N.kind && netb_active())
+		return;
+	N.kind = kind;
+	N.lcur = N.ltop = 0;
+	N.lkey_host = N.lkey_sess = 0;
+	netb_begin(N.kind);
+	SE(4);
+}
+
+static int lobby_state(const lobby_entry *e) /* 0 open, 1 full, 2 in match, 3 other build */
+{
+	if (!lobby_compatible(e, RB_PROTO_VERSION, AOS_GAME_VERSION, rb_sim_fingerprint()))
+		return 3;
+	if (e->status == LOBBY_INMATCH)
+		return 2;
+	return e->status == LOBBY_FULL || e->players >= e->max_players ? 1 : 0;
+}
+
+static void browse_join(int i)
+{
+	const lobby_list *l = netb_list();
+	if (i < 0 || i >= l->n)
+		return;
+	const lobby_entry *e = &l->e[i];
+	static const char *const why[4] = {NULL, "The lobby is full.", "The lobby is in a match.",
+	                                   "The host runs a different build."};
+	int ls = lobby_state(e);
+	if (ls) {
+		const char *t = ls == 1 ? tr("MENU_MULTIPLAYER_LOBBY_MESSAGE_JOIN_LOBBYISFULL") : why[ls];
+		announce_show_text(t && *t ? t : why[ls]);
+		SE(3);
+		return;
+	}
+	N.target = *e;
+	N.have_target = true;
+	netb_end();
+	set_role(false);
+	go(NS_CHARS);
+	SE(0);
+	ann("ANNOUNCE_CHARACTERSELECT_CHARACTER");
+}
+
+static void browse_update(void)
+{
+	netb_poll();
+	const lobby_list *l = netb_list();
+	/* keep the highlight on the same lobby while entries come and go */
+	if (N.lkey_host || N.lkey_sess) {
+		for (int i = 0; i < l->n; i++)
+			if (l->e[i].host == N.lkey_host && l->e[i].session == N.lkey_sess)
+				N.lcur = i;
+	}
+	if (N.lcur >= l->n)
+		N.lcur = l->n ? l->n - 1 : 0;
+	if (l->n && min_pressed(MI_UP)) {
+		N.lcur = (N.lcur + l->n - 1) % l->n;
+		SE(2);
+	}
+	if (l->n && min_pressed(MI_DOWN)) {
+		N.lcur = (N.lcur + 1) % l->n;
+		SE(2);
+	}
+	if (min_pressed(MI_LEFT) || min_pressed(MI_RIGHT) || min_pressed(MI_L) || min_pressed(MI_R))
+		browse_switch(N.kind ^ 1);
+	if (N.lcur < N.ltop)
+		N.ltop = N.lcur;
+	if (N.lcur >= N.ltop + ROWS)
+		N.ltop = N.lcur - ROWS + 1;
+	if (N.ltop > 0 && N.ltop > l->n - ROWS)
+		N.ltop = l->n > ROWS ? l->n - ROWS : 0;
+	if (l->n) {
+		N.lkey_host = l->e[N.lcur].host;
+		N.lkey_sess = l->e[N.lcur].session;
+		N.lstage = l->e[N.lcur].stage;
+	} else {
+		N.lkey_host = N.lkey_sess = 0;
+		N.lstage = 0;
+	}
+	if (min_confirm()) {
+		if (l->n)
+			browse_join(N.lcur);
+	} else if (min_cancel()) {
+		netb_end();
+		go(NS_MODE);
+		SE(1);
+		ann("ANNOUNCE_NET_JOINSIDE");
+	}
+}
+
 static void touch(void)
 {
 	if (!min_pressed_nr(MI_TOUCH))
@@ -257,7 +381,12 @@ static void touch(void)
 	int tx = g_min.touch_x, ty = g_min.touch_y;
 	vssel_state *v = &g_vs;
 	if (N.st == NS_MODE) {
-		int k = ty >= 26 && ty < 110 ? 0 : ty >= 110 && ty < 194 ? 1 : -1;
+		if (ty >= 160 && ty < 198) { /* transport bar: tap = switch */
+			N.kind ^= 1;
+			SE(4);
+			return;
+		}
+		int k = ty >= 26 && ty < 158 ? (ty - 26) / 44 : -1;
 		if (k < 0)
 			return;
 		if (k == N.mode)
@@ -265,6 +394,16 @@ static void touch(void)
 		else {
 			N.mode = k;
 			SE(2);
+		}
+	} else if (N.st == NS_BROWSE) {
+		if (ty >= 26 && ty < 46) { /* transport tabs */
+			browse_switch(tx < BW / 2 ? LOBBY_UDS : LOBBY_LAN);
+			return;
+		}
+		int r = ty >= LIST_Y && ty < LIST_Y + ROWS * ROW_H ? (int)((ty - LIST_Y) / ROW_H) : -1;
+		if (r >= 0 && N.ltop + r < netb_list()->n) { /* tap a lobby = join it */
+			N.lcur = N.ltop + r;
+			browse_join(N.lcur);
 		}
 	} else if (N.st == NS_CHARS) {
 		if (selx_card_hit(tx, ty)) /* tap the character art = confirm */
@@ -321,8 +460,12 @@ static void chars_update(void)
 		SE(0);
 		ann("ANNOUNCE_CHARACTERSELECT_ACCEPT");
 	} else if (min_cancel()) {
-		go(NS_MODE);
 		SE(1);
+		if (N.have_target) {
+			browse_enter();
+			return;
+		}
+		go(NS_MODE);
 		ann("ANNOUNCE_NET_JOINSIDE");
 	}
 }
@@ -406,7 +549,7 @@ static void link_update(void)
 {
 	netl_state s = netl_poll();
 	if (s == NETL_FAILED) {
-		show_error(netl_error(), N.host ? NS_STAGE : NS_OPTIONS);
+		show_error(netl_error(), N.host ? NS_STAGE : N.have_target ? NS_BROWSE : NS_OPTIONS);
 		return;
 	}
 	if (s == NETL_READY) {
@@ -490,12 +633,31 @@ static void netsel_update(void)
 			}
 			break;
 		}
-		if (min_pressed(MI_UP) || min_pressed(MI_DOWN)) {
-			N.mode ^= 1;
+		if (min_pressed(MI_UP)) {
+			N.mode = (N.mode + 2) % 3;
 			SE(2);
 		}
+		if (min_pressed(MI_DOWN)) {
+			N.mode = (N.mode + 1) % 3;
+			SE(2);
+		}
+		if (min_pressed(MI_LEFT) || min_pressed(MI_RIGHT) || min_pressed(MI_L) || min_pressed(MI_R)) {
+			N.kind ^= 1;
+			SE(4);
+		}
 		if (min_confirm()) {
+			if (N.mode == 2) {
+				SE(0);
+				browse_enter();
+				break;
+			}
+			const char *e = net_transport_check(N.kind); /* no Wi-Fi / wireless off: say so now */
+			if (e) {
+				show_error(e, NS_MODE);
+				break;
+			}
 			set_role(N.mode == 0);
+			N.have_target = false;
 			go(NS_CHARS);
 			SE(0);
 			ann("ANNOUNCE_CHARACTERSELECT_CHARACTER");
@@ -506,6 +668,7 @@ static void netsel_update(void)
 			announce_hide();
 		}
 		break;
+	case NS_BROWSE: browse_update(); break;
 	case NS_CHARS: chars_update(); break;
 	case NS_OPTIONS: options_update(); break;
 	case NS_STAGE: stage_update_sel(); break;
@@ -522,9 +685,14 @@ static void netsel_update(void)
 	case NS_ERROR:
 		if (min_confirm() || min_cancel()) {
 			SE(1);
+			if (N.err_back == NS_BROWSE) {
+				browse_enter();
+				break;
+			}
 			go(N.err_back);
 			ann(N.err_back == NS_STAGE     ? "ANNOUNCE_CHARACTERSELECT_STAGE"
 			    : N.err_back == NS_OPTIONS ? "ANNOUNCE_CHARACTERSELECT_ACCEPT"
+			    : N.err_back == NS_MODE    ? "ANNOUNCE_NET_JOINSIDE"
 			                               : "ANNOUNCE_CHARACTERSELECT_CHARACTER");
 		}
 		break;
@@ -535,9 +703,17 @@ static void netsel_update(void)
 	v->chara[me] = N.st >= NS_LINK && N.st != NS_ERROR ? N.pick : v->pool[N.cur];
 	v->color[me] = N.color;
 	v->command[me] = N.cmd;
-	v->slot[me] = N.st == NS_MODE ? SLOT_CPU : N.st == NS_CHARS ? SLOT_CHOOSE : N.st == NS_OPTIONS ? SLOT_OPTIONS : SLOT_READY;
+	bool browsing = N.st == NS_BROWSE;
+	v->slot[me] = N.st == NS_MODE || browsing ? SLOT_CPU : N.st == NS_CHARS ? SLOT_CHOOSE : N.st == NS_OPTIONS ? SLOT_OPTIONS : SLOT_READY;
 	bool known = N.st == NS_WHITE || N.st == NS_VS || N.st == NS_GO;
-	if (!known) {
+	if (browsing) { /* the highlighted lobby's host stands on the P1 side */
+		const lobby_list *l = netb_list();
+		bool any = l->n > 0 && N.lcur < l->n;
+		int c = any ? l->e[N.lcur].chara : SEL_RANDOM;
+		v->chara[op] = c >= 3 && c < AOS_NUM_CHARS ? c : SEL_RANDOM;
+		v->color[op] = any ? l->e[N.lcur].color + 1 : 0;
+		v->slot[op] = any ? SLOT_READY : SLOT_CPU;
+	} else if (!known) {
 		v->chara[op] = SEL_RANDOM;
 		v->color[op] = 0;
 		v->slot[op] = SLOT_CPU;
@@ -547,9 +723,10 @@ static void netsel_update(void)
 	for (int p = 0; p < 2; p++) {
 		if (!freeze) {
 			approach(&v->cd0[p], v->slot[p] == SLOT_CHOOSE, 0.1f);
-			bool stand = p == me ? v->slot[p] >= SLOT_OPTIONS : known || N.st == NS_LINK;
+			bool stand = p == me ? v->slot[p] >= SLOT_OPTIONS && !browsing
+			                     : known || N.st == NS_LINK || (browsing && v->slot[p] == SLOT_READY);
 			approach(&v->cc8[p], stand, 0.1f);
-			approach(&v->cc0[p], p == me ? N.st != NS_MODE : known, 0.1f);
+			approach(&v->cc0[p], p == me ? N.st != NS_MODE && !browsing : known, 0.1f);
 		}
 		to_zero(&v->d74[p], 0.1f);
 		approach(&v->ce0[p], false, 0.025f);
@@ -557,6 +734,7 @@ static void netsel_update(void)
 		selx_std(p, v->chara[p], v->color[p]);
 	}
 	approach(&v->ca8, N.st != NS_MODE, 0.1f);
+	approach(&N.browse_a, browsing, 0.1f);
 	approach(&v->ca0, N.st == NS_STAGE, 0.1f);
 	to_zero(&v->d7c, 0.1f);
 	if (!freeze)
@@ -599,6 +777,78 @@ static void band(float y, float hh, float a)
 	ui_hline(0, W, y + hh - 1, a8(a) | 0xffffff);
 }
 
+static const char *const mode_keys[3] = {"MENU_MULTIPLAYER_STARTMENU_CREATELOBBY",
+                                          "MENU_MULTIPLAYER_STARTMENU_QUICKMATCH",
+                                          "MENU_MULTIPLAYER_STARTMENU_SEARCHLOBBY"};
+
+static unsigned kind_rgb(int k) { return k == LOBBY_LAN ? 0x8cc8ff : 0x9cffa5; }
+
+/* transport badge (left edge x, centre y); returns its width */
+static float badge(float x, float y, int kind, float a)
+{
+	const char *t = kind == LOBBY_LAN ? "LAN" : "WIRELESS";
+	float w = text_width(FONT_MENULABEL, t, 1.0f) + 10;
+	unsigned bg = kind == LOBBY_LAN ? 0x2860b8 : 0x22884a;
+	ui_rect(x, y - 7, x + w, y + 7, a8(a * 0.9f) | bg);
+	ui_hline(x, x + w, y - 7, a8(a * 0.6f) | 0xffffff);
+	text_draw(FONT_MENULABEL, t, x + w / 2, y, TEXT_CENTER, c2d(a8(a) | 0xffffff), 1.0f, 0);
+	return w;
+}
+
+/* signal bars 0..3 (Local Wireless), bottom-left at (x, y) */
+static void bars(float x, float y, int sig, float a)
+{
+	for (int i = 0; i < 3; i++) {
+		float h = 5 + 3 * (float)i;
+		unsigned c = i < sig ? (sig == 1 ? 0xffb050 : 0x9cffa5) : 0x505050;
+		ui_rect(x + 5 * (float)i, y - h, x + 5 * (float)i + 3, y, a8(a) | c);
+	}
+}
+
+static const char *status_text(int ls, unsigned *rgb)
+{
+	static const char *const t[4] = {"OPEN", "FULL", "IN MATCH", "OTHER BUILD"};
+	static const unsigned c[4] = {0x9cffa5, 0xffb050, 0xff7070, 0xffe060};
+	*rgb = c[ls];
+	return t[ls];
+}
+
+/* top screen while browsing: the highlighted lobby (host art stands on the left, from g_vs) */
+static void browse_top(float a)
+{
+	const lobby_list *l = netb_list();
+	float x0 = 214, x1 = W - 8, y0 = 40, y1 = 200, cx = (x0 + x1) / 2;
+	ui_rect(x0, y0, x1, y1, (unsigned)(int)(150 * a) << 24);
+	ui_hline(x0, x1, y0, a8(a * 0.7f) | 0xffffff);
+	ui_hline(x0, x1, y1 - 1, a8(a * 0.7f) | 0xffffff);
+	if (l->n == 0 || N.lcur >= l->n) {
+		float pulse = 0.55f + 0.45f * sinf((float)N.t * 0.08f);
+		selx_icon(SEL_RANDOM, cx, y0 + 52, 26, a8(a * pulse) | 0xffffff);
+		const char *e = netb_error();
+		text_draw(FONT_MENU, *e ? "NO CONNECTION" : tr("MENULABEL_MULTIPLAYER_SEARCHINGLOBBY"), cx, y0 + 100, TEXT_CENTER,
+		          c2d(a8(a) | (*e ? 0xff9090 : 0xffffff)), 0.9f, x1 - x0 - 12);
+		text_draw(FONT_SYSTEM, kind_name(N.kind), cx, y0 + 120, TEXT_CENTER, c2d(a8(a) | kind_rgb(N.kind)), 1.0f, 0);
+		return;
+	}
+	const lobby_entry *e = &l->e[N.lcur];
+	text_draw(FONT_SYSTEM, "HOST", x0 + 8, y0 + 12, TEXT_LEFT, c2d(a8(a) | 0xa0a0a0), 1.0f, 0);
+	badge(x1 - 8 - (text_width(FONT_MENULABEL, e->kind == LOBBY_LAN ? "LAN" : "WIRELESS", 1.0f) + 10), y0 + 12, e->kind, a);
+	text_draw(FONT_MENUBIG, e->name, cx, y0 + 36, TEXT_CENTER, c2d(a8(a) | 0xffffff), 1.0f, x1 - x0 - 12);
+	selx_name_plate(e->chara >= 3 && e->chara < AOS_NUM_CHARS ? e->chara : SEL_RANDOM, cx, y0 + 66, 0x50 * 0.4f,
+	                0x14 * 0.4f, a8(a) | 0xffffff);
+	if (e->stage > 0) {
+		ui_rect(x0, y0 + 88, x1, y0 + 112, (unsigned)(int)(120 * a) << 24);
+		selx_stage_name(e->stage, cx, y0 + 100, 1.3f, a8(a) | 0xffffff);
+	}
+	unsigned rgb;
+	const char *st = status_text(lobby_state(e), &rgb);
+	char b[48];
+	snprintf(b, sizeof b, "%s  %d/%d", st, e->players, e->max_players);
+	text_draw(FONT_MENU, b, cx, y0 + 132, TEXT_CENTER, c2d(a8(a) | rgb), 0.9f, x1 - x0 - 12);
+	if (e->kind == LOBBY_UDS && e->signal >= 0)
+		bars(cx - 7, y0 + 154, e->signal, a);
+}
+
 static void draw_top(void)
 {
 	vssel_state *v = &g_vs;
@@ -620,17 +870,25 @@ static void draw_top(void)
 	/* connection mode: the arcade command-mode bands (FUN_0079f410 layout) */
 	float ma = N.mode_a;
 	if (ma > 0) {
-		selx_pill(H / 2 - 48, 0x9cffa5, tr("MENULABEL_MULTIPLAYER_STARTMENU"), ma, W);
-		static const char *const k[2] = {"MENU_MULTIPLAYER_STARTMENU_CREATELOBBY", "MENU_MULTIPLAYER_STARTMENU_QUICKMATCH"};
-		for (int i = 0; i < 2; i++) {
-			float y = H / 2 - 20 + 33 * (float)i;
+		selx_pill(H / 2 - 62, 0x9cffa5, tr("MENULABEL_MULTIPLAYER_STARTMENU"), ma, W);
+		for (int i = 0; i < 3; i++) {
+			float y = H / 2 - 34 + 33 * (float)i;
 			bool sel = i == N.mode;
 			ui_rect(0, y - 14, W, y + 14, (unsigned)(int)(144 * ma) << 24 | (sel ? 0xffffff : 0));
 			ui_hline(0, W, y - 14, a8(ma));
 			ui_hline(0, W, y + 13, a8(ma));
-			text_draw(FONT_MENUBIG, tr(k[i]), W / 2, y - 1, TEXT_CENTER, c2d(a8(ma) | (sel ? 0xffffff : 0xa4a4a4)), 1.0f, 0);
+			text_draw(FONT_MENUBIG, tr(mode_keys[i]), W / 2, y - 1, TEXT_CENTER, c2d(a8(ma) | (sel ? 0xffffff : 0xa4a4a4)),
+			          1.0f, 0);
 		}
+		/* transport: the arcade option arrows around the name */
+		float y = H / 2 + 76;
+		band(y, 11, ma * 0.8f);
+		text_draw(FONT_MENU, kind_name(N.kind), W / 2, y - 1, TEXT_CENTER, c2d(a8(ma) | kind_rgb(N.kind)), 0.9f, 0);
+		float hw = text_width(FONT_MENU, kind_name(N.kind), 0.9f) / 2 + 14;
+		selx_arrows(W / 2 - hw, W / 2 + hw, y, a8(ma) | 0xffffff);
 	}
+	if (N.browse_a > 0)
+		browse_top(N.browse_a);
 	/* lobby / VS / error band (lower third, under the standing art's feet) */
 	float la = N.link_a > N.err_a ? N.link_a : N.err_a;
 	if (la > 0) {
@@ -656,32 +914,123 @@ static void header(const char *label, const char *right)
 {
 	selx_pill(12, 0x97cbff, label, 1, BW);
 	if (right && *right)
-		text_draw(FONT_SYSTEM, right, BW - 6, 12, TEXT_RIGHT, c2d(0xffd8e8ff), 0.8f, 150);
+		text_draw(FONT_SYSTEM, right, BW - 6, 12, TEXT_RIGHT, c2d(0xffd8e8ff), 1.0f, 150);
 }
 
 static const char *role_name(void)
 {
-	return tr(N.host ? "MENU_MULTIPLAYER_STARTMENU_CREATELOBBY" : "MENU_MULTIPLAYER_STARTMENU_QUICKMATCH");
+	return tr(N.host          ? "MENU_MULTIPLAYER_STARTMENU_CREATELOBBY"
+	          : N.have_target ? "MENU_MULTIPLAYER_STARTMENU_SEARCHLOBBY"
+	                          : "MENU_MULTIPLAYER_STARTMENU_QUICKMATCH");
 }
 
 static void draw_mode_bottom(void)
 {
-	header(tr("MENULABEL_MULTIPLAYER_STARTMENU"), "LOCAL WIRELESS");
-	static const char *const k[2] = {"MENU_MULTIPLAYER_STARTMENU_CREATELOBBY", "MENU_MULTIPLAYER_STARTMENU_QUICKMATCH"};
-	static const char *const sub[2] = {"MENU_MULTIPLAYER_STARTMENU_CREATELOBBY_SUBTITLE",
-	                                   "MENU_MULTIPLAYER_STARTMENU_QUICKMATCH_SUBTITLE"};
-	for (int i = 0; i < 2; i++) {
-		float y = 28 + 84 * (float)i;
+	header(tr("MENULABEL_MULTIPLAYER_STARTMENU"), kind_name(N.kind));
+	static const char *const sub[3] = {"MENU_MULTIPLAYER_STARTMENU_CREATELOBBY_SUBTITLE",
+	                                   "MENU_MULTIPLAYER_STARTMENU_QUICKMATCH_SUBTITLE",
+	                                   "MENU_MULTIPLAYER_STARTMENU_SEARCHLOBBY_SUBTITLE"};
+	static const char *const role[3] = {"PLAYER1 / STAGE", "PLAYER2", "PLAYER2"};
+	for (int i = 0; i < 3; i++) {
+		float y = 26 + 44 * (float)i;
 		bool sel = i == N.mode;
 		if (sel)
-			ui_rect(0, y, BW, y + 80, 0x46ffffff);
-		text_draw(FONT_MENUBIG, tr(k[i]), 10, y + 14, TEXT_LEFT, c2d(sel ? WHITE : GREY), 1.0f, BW - 20);
-		char buf[300];
-		snprintf(buf, sizeof buf, "%s %s", tr(sub[i]),
-		         i ? "You play as PLAYER2." : "You play as PLAYER1 and choose the stage.");
-		static char wr[400];
-		text_wrap(FONT_MENUSUBTITLE, buf, 1.0f, BW - 24, wr, sizeof wr);
-		text_draw(FONT_MENUSUBTITLE, wr, 14, y + 36, TEXT_LEFT, c2d(sel ? WHITE : 0x99ffffff), 1.0f, 0);
+			ui_rect(0, y, BW, y + 42, 0x46ffffff);
+		text_draw(FONT_MENUBIG, tr(mode_keys[i]), 10, y + 12, TEXT_LEFT, c2d(sel ? WHITE : GREY), 1.0f, 190);
+		text_draw(FONT_SYSTEM, role[i], BW - 8, y + 12, TEXT_RIGHT, c2d(sel ? 0xffc8d8ff : 0x77ffffff), 1.0f, 110);
+		text_draw(FONT_MENUSUBTITLE, tr(sub[i]), 14, y + 30, TEXT_LEFT, c2d(sel ? WHITE : 0x99ffffff), 1.0f, BW - 24);
+	}
+	/* transport bar (tap / L R / left right) */
+	float y = 182;
+	ui_rect(0, 160, BW, 198, 0x60000000);
+	ui_hline(0, BW, 160, 0x80ffffff);
+	text_draw(FONT_SYSTEM, "CONNECTION", 8, 168, TEXT_LEFT, c2d(0xffa0a0a0), 1.0f, 0);
+	text_draw(FONT_SYSTEM, N.kind == LOBBY_LAN ? "SAME ROUTER" : "NO ROUTER", BW - 8, 168, TEXT_RIGHT, c2d(0xff8090a0),
+	          1.0f, 0);
+	text_draw(FONT_MENU, kind_name(N.kind), BW / 2, y, TEXT_CENTER, c2d(0xff000000u | kind_rgb(N.kind)), 1.0f, 0);
+	float hw = text_width(FONT_MENU, kind_name(N.kind), 1.0f) / 2 + 16;
+	selx_arrows(BW / 2 - hw, BW / 2 + hw, y, WHITE);
+}
+
+/* lobby list (bottom screen) */
+static void draw_browse_bottom(void)
+{
+	header(tr("MENULABEL_MULTIPLAYER_LOBBYLIST"), "");
+	/* transport tabs */
+	for (int k = 0; k < 2; k++) {
+		float x0 = k ? BW / 2 : 0, x1 = x0 + BW / 2;
+		bool on = k == N.kind;
+		ui_rect(x0 + 2, 27, x1 - 2, 46, on ? 0x60ffffff : 0x50000000);
+		if (on)
+			ui_rect(x0 + 2, 44, x1 - 2, 46, 0xff000000u | kind_rgb(k));
+		text_draw(FONT_MENU, kind_name(k), (x0 + x1) / 2, 36, TEXT_CENTER, c2d(on ? WHITE : 0xff808080), 0.85f, BW / 2 - 12);
+	}
+	const lobby_list *l = netb_list();
+	const char *err = netb_error();
+	if (!netb_active() || (l->n == 0 && *err)) { /* styled inline error (no Wi-Fi / wireless off / scan failure) */
+		ui_rect(0, 62, BW, 168, 0x60000000);
+		ui_hline(0, BW, 62, 0x80ff8080);
+		ui_hline(0, BW, 167, 0x80ff8080);
+		text_draw(FONT_MENUBIG, N.kind == LOBBY_LAN ? "NO WI-FI CONNECTION" : "WIRELESS UNAVAILABLE", BW / 2, 84,
+		          TEXT_CENTER, c2d(0xffff9090), 1.0f, BW - 20);
+		static char wr[320];
+		int lines = text_wrap(FONT_MENU, *err ? err : "Not available.", 0.85f, BW - 30, wr, sizeof wr);
+		text_draw(FONT_MENU, wr, BW / 2, 124 - 8 * (float)(lines - 1), TEXT_CENTER, c2d(WHITE), 0.85f, 0);
+	} else if (l->n == 0) {
+		float pulse = 0.55f + 0.45f * sinf((float)N.t * 0.08f);
+		selx_icon(SEL_RANDOM, BW / 2, 92, 22, a8(pulse) | 0xffffff);
+		char b[96];
+		snprintf(b, sizeof b, "%s%s", tr("MENULABEL_MULTIPLAYER_SEARCHINGLOBBY"), dots());
+		text_draw(FONT_MENUBIG, b, BW / 2, 132, TEXT_CENTER, c2d(WHITE), 0.9f, BW - 20);
+		text_draw(FONT_SYSTEM,
+		          N.kind == LOBBY_LAN ? "Lobbies on the same Wi-Fi network appear here." : "Lobbies of consoles nearby appear here.",
+		          BW / 2, 154, TEXT_CENTER, c2d(GREY), 0.8f, BW - 20);
+	} else {
+		for (int r = 0; r < ROWS && N.ltop + r < l->n; r++) {
+			int i = N.ltop + r;
+			const lobby_entry *e = &l->e[i];
+			float y = LIST_Y + ROW_H * (float)r, cy = y + ROW_H / 2;
+			bool sel = i == N.lcur;
+			int ls = lobby_state(e);
+			ui_rect(0, y + 1, BW, y + ROW_H - 1, sel ? 0x60ffffff : 0x48000000);
+			if (sel) {
+				ui_hline(0, BW, y + 1, 0xc0ffffff);
+				ui_hline(0, BW, y + ROW_H - 2, 0xc0ffffff);
+				ui_rect(0, y + 1, 3, y + ROW_H - 1, 0xff000000u | kind_rgb(e->kind));
+			}
+			int c = e->chara >= 3 && e->chara < AOS_NUM_CHARS ? e->chara : SEL_RANDOM;
+			unsigned dim = ls ? 0xa0ffffff : WHITE;
+			selx_icon(c, 22, cy, 15, dim);
+			text_draw(FONT_MENU, e->name, 42, cy - 6, TEXT_LEFT, c2d(sel ? WHITE : 0xffd8d8d8), 0.95f, 150);
+			char b[96];
+			snprintf(b, sizeof b, "%s", e->stage > 0 ? stage_name(e->stage) : "?");
+			text_draw(FONT_SYSTEM, b, 42, cy + 7, TEXT_LEFT, c2d(sel ? 0xffe0e0e0 : 0xffb0b0b0), 1.0f, 150);
+			badge(200, cy - 6, e->kind, 1.0f);
+			if (e->kind == LOBBY_UDS && e->signal >= 0)
+				bars(BW - 24, cy - 1, e->signal, 1.0f);
+			unsigned rgb;
+			const char *st = status_text(ls, &rgb);
+			snprintf(b, sizeof b, ls == 3 ? "%s" : "%s %d/%d", st, e->players, e->max_players);
+			text_draw(FONT_SYSTEM, b, BW - 8, cy + 7, TEXT_RIGHT, c2d(0xff000000u | rgb), 1.0f, 110);
+		}
+		if (l->n > ROWS) { /* scroll bar on the right edge */
+			float h = ROWS * ROW_H, th = h * ROWS / (float)l->n, ty = LIST_Y + h * (float)N.ltop / (float)l->n;
+			ui_rect(BW - 3, LIST_Y, BW, LIST_Y + h, 0x40ffffff);
+			ui_rect(BW - 3, ty, BW, ty + th, 0xe0ffffff);
+		}
+	}
+	/* footer above the help line: count, controls, live-refresh light */
+	char b[64];
+	if (netb_active())
+		snprintf(b, sizeof b, l->n == 1 ? "1 LOBBY" : "%d LOBBIES", l->n);
+	else
+		b[0] = 0;
+	float fy = LIST_Y + ROWS * ROW_H + 9;
+	text_draw(FONT_SYSTEM, b, 8, fy, TEXT_LEFT, c2d(0xffd0d0d0), 1.0f, 0);
+	text_draw(FONT_SYSTEM, "A Join   B Back   L/R Connection", BW - 20, fy, TEXT_RIGHT, c2d(0xff90a0b0), 1.0f, 210);
+	if (netb_active()) {
+		float pulse = 0.4f + 0.6f * (0.5f + 0.5f * sinf((float)N.t * 0.15f));
+		ui_rect(BW - 13, fy - 3, BW - 7, fy + 3, a8(pulse) | kind_rgb(N.kind));
 	}
 }
 
@@ -759,6 +1108,9 @@ static void player_card(int p, bool known)
 	ui_hline(x0, x1, y0, 0x80ffffff);
 	ui_hline(x0, x1, y1 - 1, 0x80ffffff);
 	text_draw(FONT_SYSTEM, tr_id(0x1ce + p), x0 + 6, y0 + 10, TEXT_LEFT, c2d(0xffd0d0d0), 0.8f, 0);
+	const char *nick = p == N.me ? netl_my_name() : netl_peer_name();
+	if (nick && *nick)
+		text_draw(FONT_SYSTEM, nick, x1 - 6, y0 + 10, TEXT_RIGHT, c2d(0xffffffff), 1.0f, 80);
 	float cx = (x0 + x1) / 2;
 	if (!known) {
 		float pulse = 0.55f + 0.45f * sinf((float)N.t * 0.08f);
@@ -781,7 +1133,7 @@ static void draw_link_bottom(void)
 	const char *lab = N.host ? tr("MENULABEL_MULTIPLAYER_LOBBY")
 	                         : tr(s == NETL_CONNECTED || known ? "MENULABEL_MULTIPLAYER_JOININGLOBBY"
 	                                                           : "MENULABEL_MULTIPLAYER_SEARCHINGLOBBY");
-	header(lab, "LOCAL WIRELESS");
+	header(lab, kind_name(N.kind));
 	player_card(0, N.me == 0 || known);
 	player_card(1, N.me == 1 || known);
 	text_draw(FONT_MENUBIG, "VS", BW / 2, 78, TEXT_CENTER, c2d(WHITE), 1.0f, 0);
@@ -799,6 +1151,8 @@ static void draw_link_bottom(void)
 		snprintf(line, sizeof line, "%s  /  Input delay %d f", stage_name(N.stage), g_config.net_delay);
 	else if (netl_mismatch())
 		snprintf(line, sizeof line, "Found a host running a different build.");
+	else if (N.have_target)
+		snprintf(line, sizeof line, "Joining %s  /  %s", N.target.name, N.target.stage > 0 ? stage_name(N.target.stage) : "?");
 	else
 		snprintf(line, sizeof line, "The host chooses the stage and the music.");
 	text_draw(FONT_SYSTEM, line, BW / 2, 168, TEXT_CENTER, c2d(netl_mismatch() && !N.host ? 0xffffc060 : GREY), 0.8f,
@@ -808,7 +1162,7 @@ static void draw_link_bottom(void)
 
 static void draw_error_bottom(void)
 {
-	header(N.err_conn ? "DISCONNECTED" : "JOIN FAILURE", "LOCAL WIRELESS");
+	header(N.err_conn ? "DISCONNECTED" : N.err_back == NS_MODE ? "NOT AVAILABLE" : "JOIN FAILURE", kind_name(N.kind));
 	ui_rect(0, 40, BW, 150, 0x60000000);
 	ui_hline(0, BW, 40, 0x80ff8080);
 	ui_hline(0, BW, 149, 0x80ff8080);
@@ -828,6 +1182,7 @@ static void draw_bottom(void)
 		return;
 	switch (N.st) {
 	case NS_MODE: draw_mode_bottom(); break;
+	case NS_BROWSE: draw_browse_bottom(); break;
 	case NS_CHARS: draw_chars_bottom(); break;
 	case NS_OPTIONS: draw_options_bottom(); break;
 	case NS_STAGE: draw_stage_bottom(); break;
@@ -837,7 +1192,7 @@ static void draw_bottom(void)
 }
 
 static const scene_def netsel_scene = {
-	.name = "local wireless", .init = netsel_init, .update = netsel_update, .draw_top = draw_top,
+	.name = "multiplayer", .init = netsel_init, .update = netsel_update, .draw_top = draw_top,
 	.draw_bottom = draw_bottom, .exit = netsel_exit,
 };
 

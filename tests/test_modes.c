@@ -389,7 +389,7 @@ static void test_save(const char *dir)
 	modes_rank_insert(&S, 2, 77777, 15);
 	uint8_t buf[AOS_SAVE_FILE_BYTES];
 	size_t n = aos_save_encode(&S, buf, sizeof buf);
-	CHECK(n == AOS_SAVE_FILE_BYTES && n == 16 + 0xa4 + 0xca8 + 4, "size %u", (unsigned)n);
+	CHECK(n == AOS_SAVE_FILE_BYTES && n == 16 + 0xa4 + 0xca8 + 4 + 0x68, "size %u", (unsigned)n);
 	/* the sys image keeps the PC byte layout */
 	CHECK(buf[16 + 0x04 + 3] == 1 && buf[16 + 0x04 + 9] == 0 && buf[16 + 0x44] == (1234 & 0xff) &&
 	          buf[16 + 0x58 + 2 * 0x13 + 9] == 1 && buf[16 + 0x91 + 16] == 1 && buf[16 + 0x2b + 24] == 1 &&

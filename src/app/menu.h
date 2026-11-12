@@ -18,6 +18,7 @@ enum {
 	MS_LEAVING = 900,
 	MS_TRAINING = 0x44c,
 	MS_MANUAL = 0x456,
+	MS_CONTROLS = 0x280, /* PC key config; port: button rebinding + hyper layout (controls.h) */
 };
 
 /* Main-menu items (DAT_009b1618). */
@@ -45,6 +46,7 @@ typedef struct {
 	int diff_from;           /* state that opened the difficulty panel (100 or 200) */
 	float a_logo, a_band;    /* 1664, 1668 */
 	float a_diff, a_match, a_train, a_manual, a_cfg; /* 166c, 1674, 1678, 167c, 1680 */
+	float a_ctl;             /* port: Controls screen (controls.h) */
 	float flash;             /* 1660 white flash */
 	float kick;              /* 16d0 carousel glide */
 	int manual_scroll;       /* port: How to Play vertical scroll (px) */

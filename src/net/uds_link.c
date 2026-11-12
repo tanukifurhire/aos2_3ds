@@ -10,22 +10,22 @@
 #define NET_ID8 1               /* network kind: versus */
 #define DATA_CHANNEL 1          /* must be non-zero */
 #define SCAN_BUF_SIZE 0x4000
-#define APPDATA_MAGIC "AOS2NET"
 
 static const char passphrase[] = "aos2-3ds-versus";
 
 static bool inited, on_network, hosting;
 static udsBindContext bindctx;
-static uds_link_state state = UDS_LINK_OFF;
+static link_state state = LINK_OFF;
 static char err[96];
 static uint32_t send_errors;
+static lobby_entry my_info;
 
-typedef struct {
-	char magic[8];
-	uint8_t proto;
-	uint8_t pad[3];
-	uint32_t fingerprint;
-} appdata_t;
+/* networks of the last scan, for uds_link_connect */
+static struct {
+	udsNetworkStruct net;
+	uint32_t host, session;
+} seen_nets[LOBBY_LIST_MAX];
+static int n_seen;
 
 static void set_err(const char *what, Result r)
 {
@@ -33,7 +33,8 @@ static void set_err(const char *what, Result r)
 }
 
 const char *uds_link_error(void) { return err; }
-uint32_t uds_link_send_errors(void) { return send_errors; }
+static uint32_t uds_send_errors(void) { return send_errors; }
+bool uds_link_ready(void) { return inited; }
 
 bool uds_link_init(void)
 {
@@ -54,17 +55,22 @@ void uds_link_exit(void)
 	if (inited)
 		udsExit();
 	inited = false;
+	n_seen = 0;
 }
 
-static void make_appdata(appdata_t *a, uint32_t fingerprint)
+static bool push_appdata(void)
 {
-	memset(a, 0, sizeof *a);
-	memcpy(a->magic, APPDATA_MAGIC, sizeof a->magic);
-	a->proto = 1;
-	a->fingerprint = fingerprint;
+	uint8_t a[LOBBY_WIRE_SIZE];
+	size_t k = lobby_encode(&my_info, a, sizeof a);
+	Result r = udsSetApplicationData(a, k);
+	if (R_FAILED(r)) {
+		set_err("udsSetApplicationData", r);
+		return false;
+	}
+	return true;
 }
 
-bool uds_link_host(uint32_t fingerprint)
+bool uds_link_host(const lobby_entry *info)
 {
 	if (!inited && !uds_link_init())
 		return false;
@@ -77,29 +83,40 @@ bool uds_link_host(uint32_t fingerprint)
 		return false;
 	}
 	on_network = hosting = true;
-	appdata_t a;
-	make_appdata(&a, fingerprint);
-	r = udsSetApplicationData(&a, sizeof a);
-	if (R_FAILED(r)) {
-		set_err("udsSetApplicationData", r);
+	my_info = *info;
+	my_info.players = 1;
+	my_info.max_players = 2;
+	my_info.status = LOBBY_OPEN;
+	if (!push_appdata()) {
 		uds_link_close();
 		return false;
 	}
-	state = UDS_LINK_HOSTING;
+	state = LINK_HOSTING;
 	return true;
 }
 
-bool uds_link_join(uint32_t fingerprint, bool *fingerprint_mismatch)
+static void uds_set_status(uint8_t status, uint8_t players)
 {
-	if (fingerprint_mismatch)
-		*fingerprint_mismatch = false;
+	if (!hosting || (my_info.status == status && my_info.players == players))
+		return;
+	my_info.status = status;
+	my_info.players = players;
+	push_appdata();
+}
+
+static uint32_t mac_key(const u8 *mac)
+{
+	return (uint32_t)mac[2] << 24 | (uint32_t)mac[3] << 16 | (uint32_t)mac[4] << 8 | mac[5];
+}
+
+int uds_link_scan(lobby_entry *out, int cap, uint32_t now_ms)
+{
 	if (!inited && !uds_link_init())
-		return false;
-	uds_link_close();
+		return -1;
 	void *scanbuf = malloc(SCAN_BUF_SIZE);
 	if (!scanbuf) {
 		snprintf(err, sizeof err, "out of memory (scan buffer)");
-		return false;
+		return -1;
 	}
 	udsNetworkScanInfo *nets = NULL;
 	size_t total = 0;
@@ -108,45 +125,60 @@ bool uds_link_join(uint32_t fingerprint, bool *fingerprint_mismatch)
 	if (R_FAILED(r)) {
 		set_err("udsScanBeacons", r);
 		free(nets);
-		return false;
+		return -1;
 	}
-	bool ok = false;
-	for (size_t i = 0; i < total && !ok; i++) {
-		appdata_t a;
+	int n = 0;
+	n_seen = 0;
+	for (size_t i = 0; i < total && n < cap; i++) {
+		uint8_t a[0xc8];
 		size_t got = 0;
-		memset(&a, 0, sizeof a);
-		if (R_FAILED(udsGetNetworkStructApplicationData(&nets[i].network, &a, sizeof a, &got)) ||
-		    got != sizeof a || memcmp(a.magic, APPDATA_MAGIC, sizeof a.magic) != 0)
+		lobby_entry e;
+		if (R_FAILED(udsGetNetworkStructApplicationData(&nets[i].network, a, sizeof a, &got)) ||
+		    !lobby_decode(a, got, &e))
 			continue;
-		if (a.fingerprint != fingerprint) {
-			if (fingerprint_mismatch)
-				*fingerprint_mismatch = true;
-			continue;
+		e.kind = LOBBY_UDS;
+		e.host = mac_key(nets[i].network.host_macaddress);
+		e.last_ms = now_ms;
+		/* the beacon's own node count is authoritative for "full" */
+		e.players = nets[i].network.total_nodes;
+		if (nets[i].network.total_nodes >= nets[i].network.max_nodes && e.status == LOBBY_OPEN)
+			e.status = LOBBY_FULL;
+		out[n++] = e;
+		if (n_seen < LOBBY_LIST_MAX) {
+			seen_nets[n_seen].net = nets[i].network;
+			seen_nets[n_seen].host = e.host;
+			seen_nets[n_seen].session = e.session;
+			n_seen++;
 		}
-		if (nets[i].network.total_nodes >= nets[i].network.max_nodes)
-			continue; /* full */
-		r = udsConnectNetwork(&nets[i].network, passphrase, sizeof passphrase, &bindctx, UDS_BROADCAST_NETWORKNODEID,
-		                      UDSCONTYPE_Client, DATA_CHANNEL, UDS_DEFAULT_RECVBUFSIZE);
-		if (R_FAILED(r)) {
-			set_err("udsConnectNetwork", r);
-			continue;
-		}
-		ok = true;
 	}
 	free(nets);
-	if (!ok) {
-		if (!err[0])
-			snprintf(err, sizeof err, "no host found");
-		return false;
-	}
-	err[0] = 0;
-	on_network = true;
-	hosting = false;
-	state = UDS_LINK_CONNECTED;
-	return true;
+	return n;
 }
 
-uds_link_state uds_link_poll(void)
+bool uds_link_connect(uint32_t host, uint32_t session)
+{
+	if (!inited && !uds_link_init())
+		return false;
+	uds_link_close();
+	for (int i = 0; i < n_seen; i++) {
+		if (seen_nets[i].host != host || (session && seen_nets[i].session != session))
+			continue;
+		Result r = udsConnectNetwork(&seen_nets[i].net, passphrase, sizeof passphrase, &bindctx,
+		                             UDS_BROADCAST_NETWORKNODEID, UDSCONTYPE_Client, DATA_CHANNEL, UDS_DEFAULT_RECVBUFSIZE);
+		if (R_FAILED(r)) {
+			set_err("udsConnectNetwork", r);
+			return false;
+		}
+		on_network = true;
+		hosting = false;
+		state = LINK_CONNECTED;
+		return true;
+	}
+	snprintf(err, sizeof err, "The lobby is gone.");
+	return false;
+}
+
+static link_state uds_poll(void)
 {
 	if (!on_network)
 		return state;
@@ -155,13 +187,13 @@ uds_link_state uds_link_poll(void)
 		return state;
 	/* status 6 = host, 9 = client on 3dbrew; rely on node count instead */
 	if (cs.total_nodes >= 2)
-		state = UDS_LINK_CONNECTED;
-	else if (state == UDS_LINK_CONNECTED)
-		state = UDS_LINK_LOST;
+		state = LINK_CONNECTED;
+	else if (state == LINK_CONNECTED)
+		state = LINK_LOST;
 	return state;
 }
 
-bool uds_link_send(const void *buf, size_t len)
+static bool uds_send(const void *buf, size_t len)
 {
 	if (!on_network || len == 0 || len > UDS_DATAFRAME_MAXSIZE)
 		return false;
@@ -174,7 +206,7 @@ bool uds_link_send(const void *buf, size_t len)
 	return true;
 }
 
-int uds_link_recv(void *buf, size_t cap)
+static int uds_recv(void *buf, size_t cap)
 {
 	if (!on_network)
 		return -1;
@@ -198,6 +230,17 @@ void uds_link_close(void)
 		udsUnbind(&bindctx);
 	}
 	on_network = hosting = false;
-	state = UDS_LINK_OFF;
+	state = LINK_OFF;
 	err[0] = 0;
 }
+
+const net_link uds_link_ops = {
+	.name = "LOCAL WIRELESS",
+	.poll = uds_poll,
+	.send = uds_send,
+	.recv = uds_recv,
+	.close = uds_link_close,
+	.error = uds_link_error,
+	.send_errors = uds_send_errors,
+	.set_status = uds_set_status,
+};

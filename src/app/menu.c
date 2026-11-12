@@ -7,6 +7,7 @@
 #include <string.h>
 
 #include "audio.h"
+#include "controls.h"
 #include "music.h"
 #include "scene.h"
 #include "text.h"
@@ -80,7 +81,14 @@ void menu_logic_init(void) /* FUN_00642190 */
 		g_menu.diff = keep_diff;
 		g_menu.cfg_cur = keep_cfg;
 		g_menu.a_band = 1;
-		if (to_cfg) {
+		if (prev == SCENE_LAB) { /* back from Controls > Input test */
+			g_menu.state = MS_CONTROLS;
+			g_menu.a_ctl = 1;
+			g_menu.cfg_lang = g_config.language;
+			controls_open();
+			g_ctl.cur = CTR_TEST;
+			announce_show_text(controls_help());
+		} else if (to_cfg) {
 			g_menu.state = MS_CONFIG;
 			g_menu.a_cfg = 1;
 			g_menu.cfg_lang = g_config.language;
@@ -112,7 +120,10 @@ void menu_logic_init(void) /* FUN_00642190 */
 	scene_fade(5);
 }
 
-float menu_sub_alpha(void) { return g_menu.a_diff + g_menu.a_match + g_menu.a_train + g_menu.a_manual + g_menu.a_cfg; }
+float menu_sub_alpha(void)
+{
+	return g_menu.a_diff + g_menu.a_match + g_menu.a_train + g_menu.a_manual + g_menu.a_cfg + g_menu.a_ctl;
+}
 
 static void leave(void)
 {
@@ -279,7 +290,7 @@ const char *menu_cfg_help(int row)
 	switch (row) {
 	case CR_CITYLOD: return "Capital in Flames / Whirlpool city sprites: presentation option for speed.";
 	case CR_NETDELAY: return "Local wireless input delay in frames (the host's value is used).";
-	case CR_CONTROLS: return "Show the 3DS button mapping and test inputs (input lab).";
+	case CR_CONTROLS: return "Rebind the buttons, arrange the touch hyper buttons, test the controls.";
 	default: return announce_by_id(menu_cfg_announce(row));
 	}
 }
@@ -376,10 +387,9 @@ static void config_update(void) /* FUN_00647fd0 */
 		if (row == CR_EXIT)
 			cfg_exit();
 		else if (row == CR_CONTROLS) {
-			se(0);
-			config_save();
-			menu_resume_next();
-			scene_goto(SCENE_LAB); /* port: input lab instead of key config 0x280 */
+			se(0); /* port: own Controls screen instead of the key config 0x280 (controls.h) */
+			g_menu.state = MS_CONTROLS;
+			controls_open();
 		}
 	} else if (min_cancel()) {
 		if (row == CR_EXIT)
@@ -533,6 +543,12 @@ void menu_logic_update(void) /* FUN_00643150 */
 	case MS_CONFIG:
 		config_update();
 		break;
+	case MS_CONTROLS:
+		if (!controls_update()) {
+			m->state = MS_CONFIG;
+			announce_show(menu_cfg_announce(CR_CONTROLS));
+		}
+		break;
 	case MS_RANKING:
 	case MS_NAME_ENTRY:
 	case MS_UNLOCK:
@@ -552,6 +568,7 @@ void menu_logic_update(void) /* FUN_00643150 */
 		approach(&m->a_train, m->state == MS_TRAINING);
 		approach(&m->a_manual, m->state == MS_MANUAL);
 		approach(&m->a_cfg, m->state == MS_CONFIG);
+		approach(&m->a_ctl, m->state == MS_CONTROLS);
 	}
 	ranking_tail();
 	if (m->flash > 0) {

@@ -5,6 +5,7 @@
 #include "../src/sim/sim.h"
 
 #include <math.h>
+#include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -171,22 +172,85 @@ static void test_ready(void)
 
 static void test_layout(void)
 {
-	/* left/right (thumb) quadrants filled first: Suguri/Sora keep the gap at the bottom; the map is its own inverse */
+	ht_layout_reset_all();
+	/* default rule: left/right (thumb) quadrants filled first, Suguri/Sora keep the gap at the bottom */
 	for (int k = 0; k < HT_NSLOT; k++)
 		CHECK(ht_pos_slot(AOS_CH_SUGURI, k) == k && ht_pos_slot(AOS_CH_SORA, k) == k, "gap stays at the bottom");
 	CHECK(!ht_slot(AOS_CH_SUGURI, HT_DOWN)->key && !ht_slot(AOS_CH_SORA, HT_DOWN)->key, "bottom empty");
 	for (int c = AOS_CH_SORA; c < AOS_NUM_CHARS; c++)
 		CHECK(ht_slot(c, ht_pos_slot(c, HT_LEFT))->key && ht_slot(c, ht_pos_slot(c, HT_RIGHT))->key, "thumbs filled");
 	CHECK(ht_pos_slot(AOS_CH_NATH, HT_DOWN) == HT_DOWN && ht_pos_slot(AOS_CH_NATH, HT_UP) == HT_UP, "nath as is");
-	for (int c = AOS_CH_SORA; c < AOS_NUM_CHARS; c++)
+	for (int c = AOS_CH_SORA; c < AOS_NUM_CHARS; c++) {
+		uint8_t d[HT_NSLOT];
+		ht_layout_default(c, d);
+		CHECK(ht_layout_valid(d) && ht_layout_is_default(c), "default valid");
 		for (int k = 0; k < HT_NSLOT; k++)
-			CHECK(ht_pos_slot(c, ht_pos_slot(c, k)) == k, "involution");
+			CHECK(ht_pos_slot(c, ht_slot_pos(c, k)) == k && ht_slot_pos(c, ht_pos_slot(c, k)) == k, "round trip");
+	}
+}
+
+static void test_custom_layout(void)
+{
+	ht_layout_reset_all();
+	/* Suguri: Hyper Sword (S+H) to the left, Hyper Rifle (H) to the top */
+	CHECK(ht_layout_swap(AOS_CH_SUGURI, HT_UP, HT_LEFT), "swap");
+	CHECK(ht_pos_slot(AOS_CH_SUGURI, HT_LEFT) == HT_UP && ht_pos_slot(AOS_CH_SUGURI, HT_UP) == HT_LEFT, "pos -> slot");
+	CHECK(ht_slot_pos(AOS_CH_SUGURI, HT_UP) == HT_LEFT && ht_slot_pos(AOS_CH_SUGURI, HT_LEFT) == HT_UP, "slot -> pos");
+	CHECK(!ht_layout_is_default(AOS_CH_SUGURI) && ht_layout_is_default(AOS_CH_SORA), "only Suguri changed");
+	/* a touch on the left quadrant now fires S+H (what panel_touch returns: the slot at the touched position) */
+	ht_state s;
+	ht_init(&s);
+	uint16_t m = ht_apply(&s, AOS_CH_SUGURI, 0, ht_pos_slot(AOS_CH_SUGURI, HT_LEFT), 0);
+	CHECK(m == (AOS_IN_S | AOS_IN_H), "left = Hyper Sword now: %#x", m);
+	/* the empty slot moves with the layout: Suguri's gap (DOWN) to the right */
+	CHECK(ht_layout_swap(AOS_CH_SUGURI, HT_RIGHT, HT_DOWN), "swap gap");
+	CHECK(!ht_slot(AOS_CH_SUGURI, ht_pos_slot(AOS_CH_SUGURI, HT_RIGHT))->key &&
+	          ht_slot(AOS_CH_SUGURI, ht_pos_slot(AOS_CH_SUGURI, HT_DOWN))->key,
+	      "gap on the right, Hyper Arrow at the bottom");
+	/* the centre is fixed */
+	CHECK(!ht_layout_swap(AOS_CH_SUGURI, HT_CENTER, HT_UP) && !ht_layout_swap(AOS_CH_SUGURI, HT_UP, HT_UP), "no centre");
+	CHECK(ht_pos_slot(AOS_CH_SUGURI, HT_CENTER) == HT_CENTER, "centre stays");
+	/* get / set round trip, invalid tables refused */
+	uint8_t p[HT_NSLOT], q[HT_NSLOT];
+	ht_layout_get(AOS_CH_SUGURI, p);
+	CHECK(ht_layout_valid(p), "valid");
+	ht_layout_set(AOS_CH_KAE, p);
+	ht_layout_get(AOS_CH_KAE, q);
+	CHECK(!memcmp(p, q, sizeof p), "set/get");
+	const uint8_t bad1[HT_NSLOT] = {0, 0, 2, 3, 4}, bad2[HT_NSLOT] = {4, 1, 2, 3, 0}, bad3[HT_NSLOT] = {0, 1, 2, 9, 4};
+	CHECK(!ht_layout_valid(bad1) && !ht_layout_valid(bad2) && !ht_layout_valid(bad3), "invalid");
+	ht_layout_set(AOS_CH_KAE, bad2);
+	CHECK(ht_layout_is_default(AOS_CH_KAE), "invalid -> default");
+	ht_layout_swap(AOS_CH_KAE, HT_UP, HT_DOWN);
+	ht_layout_set(AOS_CH_KAE, NULL);
+	CHECK(ht_layout_is_default(AOS_CH_KAE), "NULL -> default");
+	/* Sumika's second form follows Sumika */
+	ht_layout_swap(AOS_CH_SUMIKA, HT_UP, HT_DOWN);
+	CHECK(ht_pos_slot(AOS_CH_SUMIKA2, HT_UP) == HT_DOWN && ht_slot_pos(AOS_CH_SUMIKA2, HT_DOWN) == HT_UP, "Sumika 2");
+	/* random swaps keep a permutation and both maps inverse */
+	srand(3);
+	for (int i = 0; i < 5000; i++) {
+		int c = AOS_CH_SORA + rand() % (AOS_NUM_CHARS - AOS_CH_SORA);
+		ht_layout_swap(c, rand() % 4, rand() % 4);
+		ht_layout_get(c, p);
+		bool ok = ht_layout_valid(p);
+		for (int k = 0; k < HT_NSLOT; k++)
+			ok &= ht_slot_pos(c, ht_pos_slot(c, k)) == k;
+		if (!ok) {
+			CHECK(0, "random swaps broke the layout at %d", i);
+			break;
+		}
+	}
+	ht_layout_reset_all();
+	for (int c = AOS_CH_SORA; c < AOS_NUM_CHARS; c++)
+		CHECK(ht_layout_is_default(c), "reset all");
 }
 
 int main(void)
 {
 	aos_register_all();
 	test_layout();
+	test_custom_layout();
 	test_all_slots();
 	test_physical_held();
 	test_mask_edges();

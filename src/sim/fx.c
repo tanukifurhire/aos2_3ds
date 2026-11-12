@@ -366,10 +366,14 @@ static void draw_trail(aos_world *w, aos_effect *e)
 		f += 12;
 	float hw = 10.0f * e->scale, hh = 60.0f * e->scale;
 	uint32_t col = ftou(255.0f * e->alpha) << 24 | 0xffffff;
-	char name[24];
+	static int rng_tex[AOS_NUM_CHARS][2]; /* interned "<pfx>_rng0<k>" + 1 (0 = not yet; perf: no snprintf per draw) */
 	for (int k = 1; k >= 0; k--) {
-		snprintf(name, sizeof name, "%s_rng0%d", rngpfx[id], k);
-		quad(aos_tex(name), AOS_BANK_P0, e->pos, hw, hh, (f % 8) << 6, (f / 8) * 250,
+		if (!rng_tex[id][k]) {
+			char name[24];
+			snprintf(name, sizeof name, "%s_rng0%d", rngpfx[id], k);
+			rng_tex[id][k] = aos_tex(name) + 1;
+		}
+		quad(rng_tex[id][k] - 1, AOS_BANK_P0, e->pos, hw, hh, (f % 8) << 6, (f / 8) * 250,
 		     (f % 8) * 64 + 63, (f / 8) * 250 + 249, col, 2, aos_rad2bam(e->rotation));
 	}
 }
@@ -665,20 +669,31 @@ static const char *const sphname[12] = {
 
 void aos_particles_draw(aos_world *w) /* FUN_0068c000: sph<c>b 24x24 (B1), sph<c> 16x16 (B2) */
 {
-	char name[24];
+	/* interned "sph<c>b" / "sph<c>" + 1 per colour (0 = not yet), looked up on first use as before: the
+	 * per-particle snprintf was the most expensive part of this loop on the 3DS (perf only) */
+	static int sph_tex[12][2];
 	for (int i = 0; i < w->obj.nparticle; i++) {
 		const aos_particle *r = &w->obj.particle[i];
 		if (r->colour < 0 || r->colour >= 12)
 			continue; /* UNVERIFIED: loader reserves 14 colours, only 12 textures exist */
 		float a = r->alpha;
-		snprintf(name, sizeof name, "sph%sb", sphname[r->colour]);
-		aos_dcmd *c = aos_draw(aos_tex(name), AOS_BANK_COMMON, r->pos[0], r->pos[1], 0);
+		int *t = sph_tex[r->colour];
+		if (!t[0]) {
+			char name[24];
+			snprintf(name, sizeof name, "sph%sb", sphname[r->colour]);
+			t[0] = aos_tex(name) + 1;
+		}
+		aos_dcmd *c = aos_draw(t[0] - 1, AOS_BANK_COMMON, r->pos[0], r->pos[1], 0);
 		c->halfW = c->halfH = 12.0f;
 		c->sx = c->sy = r->scale;
 		c->blend = AOS_BLEND_ALPHA;
 		c->rgba = aos_rgba(a, a, a, a * 0.25f);
-		snprintf(name, sizeof name, "sph%s", sphname[r->colour]);
-		c = aos_draw(aos_tex(name), AOS_BANK_COMMON, r->pos[0], r->pos[1], 0);
+		if (!t[1]) {
+			char name[24];
+			snprintf(name, sizeof name, "sph%s", sphname[r->colour]);
+			t[1] = aos_tex(name) + 1;
+		}
+		c = aos_draw(t[1] - 1, AOS_BANK_COMMON, r->pos[0], r->pos[1], 0);
 		c->halfW = c->halfH = 8.0f;
 		c->sx = c->sy = r->scale;
 		c->blend = AOS_BLEND_ADD_ALPHA;

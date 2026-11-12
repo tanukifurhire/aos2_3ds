@@ -6,8 +6,9 @@
  * speeds and timings here are PLACEHOLDERS, not the original game's values;
  * the real mechanics are still compiled inside aos2.exe (see docs/STATUS.md).
  *
- * Controls: Circle Pad / D-Pad move, L Dash, R Shield (L+R too), A/B Weapon A/B,
- * X/Y Special A/B, L,L Hyper Dash, touch screen = Hyper.
+ * Controls: Circle Pad / D-Pad move, the player's bindings (Config > Controls, aos_input.h aos_binds;
+ * default L Dash, R Shield, A/B Weapon A/B, X/Y Special A/B), Dash+Shield = Shield, Dash,Dash = Hyper
+ * Dash, touch screen = Hyper. The header lists the current bindings.
  * SELECT + Up/Down: chord window, SELECT + Left/Right: double-tap window.
  * START: exit.
  */
@@ -91,9 +92,16 @@ static void log_events(u32 frame, u32 ev)
 
 static void print_header(const aos_input_cfg *c)
 {
+	const aos_binds *b = aos_binds_current();
+	const char *dash = aos_btn_name(b->btn[AOS_ACT_DASH]), *shield = aos_btn_name(b->btn[AOS_ACT_SHIELD]);
 	printf("\x1b[1;1H\x1b[2K\x1b[36mAoS2 3DS input lab\x1b[0m  START=exit\n");
+	printf("\x1b[2K \x1b[33mDash\x1b[0m %s  \x1b[33mShield\x1b[0m %s  \x1b[33mWpn A/B\x1b[0m %s/%s\n", dash, shield,
+	       aos_btn_name(b->btn[AOS_ACT_WEAPON_A]), aos_btn_name(b->btn[AOS_ACT_WEAPON_B]));
+	printf("\x1b[2K \x1b[33mSpecial A/B\x1b[0m %s/%s  \x1b[33mHyper\x1b[0m touch\n", aos_btn_name(b->btn[AOS_ACT_SPECIAL_A]),
+	       aos_btn_name(b->btn[AOS_ACT_SPECIAL_B]));
+	printf("\x1b[2K %s+%s = Shield   %s,%s = Hyper Dash\n", dash, shield, dash, dash);
 	printf("\x1b[2K chord window: %2u f (SEL+Up/Dn)\n", c->chord_window);
-	printf("\x1b[2K double-tap:   %2u f (SEL+L/R)\n", c->double_tap_window);
+	printf("\x1b[2K double-tap:   %2u f (SEL+Left/Right)\n", c->double_tap_window);
 	printf("\x1b[2K------------------------------------");
 }
 
@@ -101,10 +109,10 @@ int lab_run(C3D_RenderTarget *top, const char *aerr)
 {
 	PrintConsole bottom;
 	consoleInit(GFX_BOTTOM, &bottom);
-	consoleSetWindow(&bottom, 0, 4, 40, 26);
+	consoleSetWindow(&bottom, 0, 7, 40, 23);
 	PrintConsole header;
 	consoleInit(GFX_BOTTOM, &header);
-	consoleSetWindow(&header, 0, 0, 40, 4);
+	consoleSetWindow(&header, 0, 0, 40, 7);
 
 	if (!spritebank_load("charaSuguriA"))
 		svcBreak(USERBREAK_PANIC);

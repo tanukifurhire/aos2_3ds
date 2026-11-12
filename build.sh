@@ -49,16 +49,19 @@ mkdir -p "$OUT/romfs/shader"
 ARCH="-march=armv6k -mtune=mpcore -mfloat-abi=hard -mtp=soft"
 PROF=""
 [ "${PROFILE:-0}" = 1 ] && PROF="-DAOS_PROFILE" # on-device profiler + sdmc:/aos2_bench.txt runner (src/app/prof.h)
+LDPROF=""
+# profile builds count every heap / linear / VRAM allocator call (prof.c "heap traffic counter": the match loop must make none)
+[ "${PROFILE:-0}" = 1 ] && LDPROF="-Wl,--wrap=malloc,--wrap=calloc,--wrap=realloc,--wrap=memalign,--wrap=free,--wrap=_malloc_r,--wrap=_realloc_r,--wrap=_memalign_r,--wrap=_free_r,--wrap=linearAlloc,--wrap=linearMemAlign,--wrap=linearRealloc,--wrap=linearFree,--wrap=vramAlloc,--wrap=vramAllocAt,--wrap=vramMemAlign,--wrap=vramMemAlignAt,--wrap=vramFree"
 CFLAGS="-g -O2 $PROF -Wall -Wextra -Werror -Wno-stringop-overread -std=gnu11 -ffunction-sections $ARCH -D__3DS__ \
  -I$DEVKITPRO/libctru/include -I$DEVKITPRO/portlibs/3ds/include -I$OUT"
-SRCS="src/net/rollback.c src/net/uds_link.c src/app/netplay.c src/app/netsel.c src/input/aos_input.c src/input/hyper_touch.c src/app/movelist.c src/app/wav.c src/app/audio.c src/app/music.c src/app/lab.c src/app/prof.c src/app/main.c src/app/scene.c src/app/scene_core.c src/app/strings.c src/app/bmfont.c src/app/text_c2d.c src/app/ui.c src/app/menu.c src/app/menu_draw.c src/platform/spritebank.c src/platform/bgm.c src/platform/render.c src/platform/sprbatch.c src/platform/stage.c $(echo src/stage/*.c) src/platform/hud.c src/platform/hud_c2d.c src/platform/panel.c $(echo src/sim/*.c src/sim/chars/*.c) src/modes/ladder.c src/modes/score.c src/modes/save.c src/app/modes_flow.c src/app/endroll.c src/app/ranking.c src/app/ranking_draw.c src/modes/conv.c src/app/conv_scene.c src/app/select.c src/app/select_draw.c src/app/result_draw.c src/app/selgfx.c"
+SRCS="src/net/rollback.c src/net/uds_link.c src/net/lan_link.c src/net/lobby.c src/app/netplay.c src/app/netsel.c src/input/aos_input.c src/input/hyper_touch.c src/app/movelist.c src/app/wav.c src/app/audio.c src/app/music.c src/app/lab.c src/app/prof.c src/app/main.c src/app/scene.c src/app/scene_core.c src/app/strings.c src/app/bmfont.c src/app/text_c2d.c src/app/ui.c src/app/menu.c src/app/menu_draw.c src/app/controls.c src/app/btnglyph.c src/platform/spritebank.c src/platform/bgm.c src/platform/render.c src/platform/sprbatch.c src/platform/stage.c $(echo src/stage/*.c) src/platform/hud.c src/platform/hud_c2d.c src/platform/panel.c $(echo src/sim/*.c src/sim/chars/*.c) src/modes/ladder.c src/modes/score.c src/modes/save.c src/app/modes_flow.c src/app/endroll.c src/app/ranking.c src/app/ranking_draw.c src/modes/conv.c src/app/conv_scene.c src/app/select.c src/app/select_draw.c src/app/result_draw.c src/app/selgfx.c"
 OBJS=""
 for s in $SRCS; do
 	o="$OUT/obj/$(echo "$s" | tr / _ | sed 's/\.c$/.o/')"
 	"$CC" $CFLAGS -c "$s" -o "$o" || exit 1
 	OBJS="$OBJS $o"
 done
-"$CC" -specs=3dsx.specs -g $ARCH -Wl,-Map,"$OUT/aos2_3ds.map" $OBJS \
+"$CC" -specs=3dsx.specs -g $ARCH $LDPROF -Wl,-Map,"$OUT/aos2_3ds.map" $OBJS \
 	-L"$DEVKITPRO/portlibs/3ds/lib" -L"$DEVKITPRO/libctru/lib" -lcitro2d -lcitro3d -lvorbisidec -logg -lctru -lm -o "$OUT/aos2_3ds.elf"
 "$TOOLS/3dsxtool.exe" "$OUT/aos2_3ds.elf" "$OUT/aos2_3ds.3dsx" --smdh="$OUT/aos2_3ds.smdh" --romfs="$OUT/romfs"
 ls -la "$OUT/aos2_3ds.3dsx"
