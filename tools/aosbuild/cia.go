@@ -33,12 +33,15 @@ func ciaStages(o BuildOpts) []stage {
 			if err := makeArt(j, root, o.Game, w); err != nil {
 				return err
 			}
-			// the 3D scene (transparent title; animated or frozen), else bannertool's flat PNG banner
+			// bannertool's flat banner from banner.png: it does not turn. The 3D scene is opt-in: the drop-in (banner
+			// test V), billboarded so the HOME menu's spin does not turn it.
 			img := []string{"-i", filepath.Join(w, "banner.png")}
-			if cgfx, err := makeSceneBanner(j, tc, filepath.Join(root, "extracted"), w, map[bool]sceneMode{true: sceneFlipbook, false: sceneStatic}[o.AnimBanner], trail); err != nil {
-				j.line("3D banner unavailable, using the flat PNG one: " + err.Error())
-			} else {
-				img = []string{"-ci", cgfx}
+			if o.AnimBanner {
+				if cgfx, err := makeSceneBanner(j, tc, filepath.Join(root, "extracted"), w, sceneDrop, nil); err != nil {
+					j.line("3D banner unavailable, using the flat one: " + err.Error())
+				} else {
+					img = []string{"-ci", cgfx}
+				}
 			}
 			if err := j.run(root, tc.Bannertool, append(append([]string{"makebanner"}, img...), "-a", filepath.Join(w, "banner.wav"),
 				"-o", filepath.Join(w, "banner.bnr"))...); err != nil {

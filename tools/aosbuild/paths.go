@@ -74,11 +74,11 @@ func findRoot() (string, error) {
 // Settings persist in <repo>/.aosbuild/settings.json (gitignored). Profiler and "rebuild assets" are per-run
 // choices and always start unchecked.
 type Settings struct {
-	Game         string `json:"game"`
-	Out          string `json:"out,omitempty"`           // empty = <repo>/build
-	Target       string `json:"target"`                  // "3dsx", "cia" or "both"
-	Background   string `json:"background,omitempty"`    // custom background image; empty = the downloaded wallpaper
-	StaticBanner bool   `json:"static_banner,omitempty"` // CIA: plain PNG banner instead of the animated one
+	Game       string `json:"game"`
+	Out        string `json:"out,omitempty"`         // empty = <repo>/build
+	Target     string `json:"target"`                // "3dsx", "cia" or "both"
+	Background string `json:"background,omitempty"`  // custom background image; empty = the downloaded wallpaper
+	AnimBanner bool   `json:"anim_banner,omitempty"` // CIA: animated 3D banner (the HOME menu turns it) instead of the flat one
 }
 
 func cacheDir(root string) string { return filepath.Join(root, ".aosbuild") }

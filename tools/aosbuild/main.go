@@ -38,12 +38,12 @@ func cli(cmd string, args []string) int {
 	out := fs.String("out", s.outDir(root), "output folder")
 	rebuild := fs.Bool("rebuild", false, "re-pack assets even if the output folder has them")
 	profile := fs.Bool("profile", false, "profiler build (-DAOS_PROFILE)")
-	static := fs.Bool("static-banner", s.StaticBanner, "CIA: static PNG banner instead of the animated one")
+	anim := fs.Bool("anim-banner", s.AnimBanner, "CIA: animated 3D banner (Suguri drops in, idles, dashes off) instead of the flat one")
 	shot := fs.String("o", "aosbuild.png", "for screenshot: output png")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
-	s.Game, s.Out, s.StaticBanner = nativePath(*game), nativePath(*out), *static
+	s.Game, s.Out, s.AnimBanner = nativePath(*game), nativePath(*out), *anim
 	tc := findToolchain(root)
 
 	var stages []stage

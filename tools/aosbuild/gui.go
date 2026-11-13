@@ -146,7 +146,7 @@ func newUI(w *app.Window) *ui {
 	u.gameEd.SingleLine, u.outEd.SingleLine = true, true
 	u.gameEd.SetText(u.st.Game)
 	u.outEd.SetText(u.st.Out)
-	u.target.Value, u.animBanner.Value = u.st.Target, !u.st.StaticBanner
+	u.target.Value, u.animBanner.Value = u.st.Target, u.st.AnimBanner
 	u.logList.Axis, u.logList.ScrollToEnd = layout.Vertical, true
 	u.refresh()
 	if len(u.logs) == 0 {
@@ -386,7 +386,7 @@ func (u *ui) syncSettings() {
 	if s.Out != "" && strings.EqualFold(s.Out, defaultOut(u.root)) {
 		s.Out = ""
 	}
-	s.Target, s.StaticBanner = u.target.Value, !u.animBanner.Value
+	s.Target, s.AnimBanner = u.target.Value, u.animBanner.Value
 	if s != u.st {
 		u.st = s
 		u.st.save(u.root)

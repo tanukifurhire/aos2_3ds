@@ -18,6 +18,9 @@ type bannerVariant struct {
 	mode         sceneMode // scene variant (when not flat)
 	jingle       bool      // assets/cia/jingle.wav instead of the menu "decide" sound
 	solo         bool      // Suguri without the afterimage
+	spin         float64   // counter-rotation sign against the HOME Menu's spin
+	billboard    bool      // every node a Y-axial billboard (faces the camera through the spin)
+	rings        int       // rings left by the dash off (sceneDropRings)
 }
 
 // Round 1 (A flat, B static scene, C moving, D/E flip-book with stepped scale on child nodes): A-C fine, D and
@@ -26,8 +29,20 @@ type bannerVariant struct {
 // with and without the sway as rotation keys: J fine, I froze the whole system. Round 4, the upright dash
 // (sg_dsh06-08): K (sway by swapping pre-turned logo copies) ran but glitched, L (no sway) fine. Round 5: the
 // back-and-forth dash (mirrored on the way back), the shipped banner.
+// Round 6: the HOME Menu itself turns every banner model once per 10 s (the "spin" seen since J). The logo is
+// now the root and counter-rotates (banner_cgfx.py); P uses +2*pi per 10 s (as GabeSud0/pokeplatinum-3ds), Q -2*pi.
+// P and Q both crashed (one played a full loop, then hung): no counter-rotation. Round 7: L's slide (plain
+// pycgfx, top-level nodes), with double-sided quads so the spin's far side shows: R fine, but the back showed
+// mirrored. S: the scene's own back faces, so the logo reads the right way round from behind: fine (shipped as the
+// animated option). Round 8, the drop-in: everything on the spin axis, so nothing orbits; T billboards every node
+// (so nothing should turn either), U is the same scene without (it turns in place like one card): T works.
+// Round 9, T plus a dash off upward so the loop joins up: V without, W with the rings the dash leaves (scale
+// keys): both fine. Round 10, everything on the axis with the draw order set by render layers (logo 0,
+// afterimages 1, rings 2, Suguri 3), the dash off as the turned dash roll, smaller rings: V fine (shipped), W
+// crashed. W's rings were the only layer-2 materials; X puts them on layer 1, Y also has 2 rings instead of 3.
 var bannerVariants = []bannerVariant{
-	{"M", "upright dash back and forth, eased, paper-flip turns + afterimage, jingle", false, sceneFlipbook, true, false},
+	{"X", "dash off up + rings, rings on layer 1", false, sceneDropRings, true, false, 0, true, 3},
+	{"Y", "dash off up + 2 rings, layer 1", false, sceneDropRings, true, false, 0, true, 2},
 }
 
 var (
@@ -87,7 +102,12 @@ func bannerTestStages(o BuildOpts) []stage {
 				if v.solo {
 					members = trail[len(trail)-1:]
 				}
+				spinSign, autorotate, billboard = v.spin, v.spin != 0, v.billboard
+				if v.rings > 0 {
+					ringCount = v.rings
+				}
 				cgfx, err := makeSceneBanner(j, tc, src, w, v.mode, members)
+				spinSign, autorotate, billboard, ringCount = 1, false, false, 3
 				if err != nil {
 					return err
 				}
