@@ -20,7 +20,7 @@ type BuildOpts struct {
 	Rebuild         bool // re-pack assets even when Out already has them
 	Profile         bool // -DAOS_PROFILE (on-device profiler, src/app/prof.h)
 	Make3dsx        bool // package the .3dsx (a CIA-only build stops at the .elf)
-	AnimBanner      bool // CIA: animated 3D banner via pycgfx (static PNG banner otherwise or on failure)
+	AnimBanner      bool // CIA: animated 3D banner via pycgfx (the HOME menu turns it); else the flat PNG banner
 	TC              Toolchain
 }
 

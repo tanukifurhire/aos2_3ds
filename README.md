@@ -26,21 +26,22 @@ installed copy of *Acceleration of SUGURI 2* (the folder with `aos2.exe`).
 4. Copy the result to the SD card: `aos2_3ds.3dsx` into `/3ds/aos2_3ds/` (Homebrew Launcher), or
    `aos2_3ds.cia` anywhere, then install it with FBI. **Open output folder** opens the folder they are in.
 
-**CIA banner and icon.** The HOME-menu banner is a 3D scene. The transparent title logo
-(`menuMdl/ttl_logo`) floats with no background. With **Animated CIA banner** ticked (the default), Suguri
-dashes back and forth in front of it on a 3 s loop: right to left, then mirrored left to right. Each dash is
-eased (fastest mid-screen, swinging toward the viewer, slowing to a stop near the edge), and at each end she
-turns around with a Paper Mario style flip before dashing back. She uses her in-game upright dash frames
-(`charaSuguriA/sg_dsh06`–`08`, ping-ponged at 20 fps like the game) with one afterimage; the logo stays still.
-Unticked, the same scene is frozen mid-dash. The real HOME menu only accepts linear position
-keys on top-level nodes, so every flip-book swaps quads by parking them off-screen; `aosbuild bannertest`
-builds small test CIAs for checking a new banner idea on the console.
-The builder writes the scene as glTF (`<output>/cia/anim/`) and pycgfx converts it to
-`<output>/cia/banner.cgfx`. `<output>/cia/banner_preview.gif` is a rough 2D preview. If pycgfx is missing or
-fails, the CIA gets the flat transparent `banner.png` instead. The icon is the game's own icon, read from
-`aos2.exe`. The banner sound is `assets/cia/jingle.wav` (git-ignored, your own file; the HOME menu plays about
-3 s), or else the menu "decide" sound. If the HOME menu ever freezes on the animated banner, untick the option
-and rebuild.
+**CIA banner and icon.** The HOME-menu banner is flat (bannertool, from `<output>/cia/banner.png`): the
+transparent title logo (`menuMdl/ttl_logo`) with Suguri's upright dash frame (`charaSuguriA/sg_dsh06`) and an
+afterimage beside it. It does not move. The icon is the game's own icon, read from `aos2.exe`. The banner
+sound is `assets/cia/jingle.wav` (git-ignored, your own file; the HOME menu plays about 3 s), or else the menu
+"decide" sound.
+
+Ticking **Animated CIA banner** builds a 3D banner instead: Suguri drops in from above on her dash frames, brakes,
+idles under the logo, then dashes off upward with her afterimage, and the next drop comes in from there (glTF in
+`<output>/cia/anim/`, converted by pycgfx plus `tools/aosbuild/banner_cgfx.py`; rough preview in
+`<output>/cia/banner_preview.gif`). The HOME menu turns every 3D banner model about the vertical axis once per
+10 s; everything here stands on that axis and is billboarded (always faces the camera), so nothing turns or
+orbits, and render layers fix the draw order so she stays in front of the title. Banner tests on a real console
+found what its HOME menu accepts: top-level nodes with linear position keys, billboarding, and render layers 0, 1
+and 3 play; stepped scale keys on child nodes crashed it, rotation keys (including a counter-rotation against
+the spin) froze it, and so did a 29-node scene. `aosbuild bannertest` builds small test CIAs (own title IDs, no
+game data) for trying a new banner idea; it currently builds the drop-in with her dash rings.
 
 The status tiles show what is missing. Each run's log is also written to `<output>/aosbuild.log`. Settings
 and the downloaded background image live in `.aosbuild/` (git-ignored). Assets are re-packed automatically
