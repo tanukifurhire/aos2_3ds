@@ -107,7 +107,7 @@ func bannerTestStages(o BuildOpts) []stage {
 					ringCount = v.rings
 				}
 				cgfx, err := makeSceneBanner(j, tc, src, w, v.mode, members)
-				spinSign, autorotate, billboard, ringCount = 1, false, false, 3
+				spinSign, autorotate, billboard, ringCount = 1, false, false, 2
 				if err != nil {
 					return err
 				}

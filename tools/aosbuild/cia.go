@@ -33,11 +33,11 @@ func ciaStages(o BuildOpts) []stage {
 			if err := makeArt(j, root, o.Game, w); err != nil {
 				return err
 			}
-			// bannertool's flat banner from banner.png: it does not turn. The 3D scene is opt-in: the drop-in (banner
-			// test V), billboarded so the HOME menu's spin does not turn it.
+			// bannertool's flat banner from banner.png: it does not turn. The 3D scene is opt-in: the drop-in with 2 dash
+			// rings (banner test Y), billboarded so the HOME menu's spin does not turn it.
 			img := []string{"-i", filepath.Join(w, "banner.png")}
 			if o.AnimBanner {
-				if cgfx, err := makeSceneBanner(j, tc, filepath.Join(root, "extracted"), w, sceneDrop, nil); err != nil {
+				if cgfx, err := makeSceneBanner(j, tc, filepath.Join(root, "extracted"), w, sceneDropRings, nil); err != nil {
 					j.line("3D banner unavailable, using the flat one: " + err.Error())
 				} else {
 					img = []string{"-ci", cgfx}

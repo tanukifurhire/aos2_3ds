@@ -292,6 +292,12 @@ func link(j *Job, o BuildOpts) error {
 	}
 	dkp := o.TC.DKP
 	args := append([]string{"-specs=3dsx.specs", "-g"}, archFlags...)
+	if o.Profile { // as LDPROF in build.sh: prof.c's heap traffic counter sees every allocator call
+		args = append(args, "-Wl,--wrap=malloc,--wrap=calloc,--wrap=realloc,--wrap=memalign,--wrap=free,"+
+			"--wrap=_malloc_r,--wrap=_realloc_r,--wrap=_memalign_r,--wrap=_free_r,--wrap=linearAlloc,--wrap=linearMemAlign,"+
+			"--wrap=linearRealloc,--wrap=linearFree,--wrap=vramAlloc,--wrap=vramAllocAt,--wrap=vramMemAlign,"+
+			"--wrap=vramMemAlignAt,--wrap=vramFree")
+	}
 	args = append(args, "-Wl,-Map,"+filepath.Join(o.Out, "aos2_3ds.map"))
 	for _, s := range srcs {
 		args = append(args, objPath(o.Out, s))

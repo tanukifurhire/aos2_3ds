@@ -33,7 +33,7 @@ sound is `assets/cia/jingle.wav` (git-ignored, your own file; the HOME menu play
 "decide" sound.
 
 Ticking **Animated CIA banner** builds a 3D banner instead: Suguri drops in from above on her dash frames, brakes,
-idles under the logo, then dashes off upward with her afterimage, and the next drop comes in from there (glTF in
+idles under the logo, then dashes off upward with her afterimage, leaving two of her dash rings, and the next drop comes in from there (glTF in
 `<output>/cia/anim/`, converted by pycgfx plus `tools/aosbuild/banner_cgfx.py`; rough preview in
 `<output>/cia/banner_preview.gif`). The HOME menu turns every 3D banner model about the vertical axis once per
 10 s; everything here stands on that axis and is billboarded (always faces the camera), so nothing turns or
@@ -41,7 +41,7 @@ orbits, and render layers fix the draw order so she stays in front of the title.
 found what its HOME menu accepts: top-level nodes with linear position keys, billboarding, and render layers 0, 1
 and 3 play; stepped scale keys on child nodes crashed it, rotation keys (including a counter-rotation against
 the spin) froze it, and so did a 29-node scene. `aosbuild bannertest` builds small test CIAs (own title IDs, no
-game data) for trying a new banner idea; it currently builds the drop-in with her dash rings.
+game data) for trying a new banner idea.
 
 The status tiles show what is missing. Each run's log is also written to `<output>/aosbuild.log`. Settings
 and the downloaded background image live in `.aosbuild/` (git-ignored). Assets are re-packed automatically

@@ -38,7 +38,7 @@ func cli(cmd string, args []string) int {
 	out := fs.String("out", s.outDir(root), "output folder")
 	rebuild := fs.Bool("rebuild", false, "re-pack assets even if the output folder has them")
 	profile := fs.Bool("profile", false, "profiler build (-DAOS_PROFILE)")
-	anim := fs.Bool("anim-banner", s.AnimBanner, "CIA: animated 3D banner (Suguri drops in, idles, dashes off) instead of the flat one")
+	anim := fs.Bool("anim-banner", s.AnimBanner, "CIA: animated 3D banner (Suguri drops in, idles, dashes off with rings) instead of the flat one")
 	shot := fs.String("o", "aosbuild.png", "for screenshot: output png")
 	if err := fs.Parse(args); err != nil {
 		return 2

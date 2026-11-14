@@ -47,10 +47,10 @@ var spinSign = 1.0
 // turn it. The drop-in scenes always are (banner tests T, V: fine on hardware).
 var billboard = false
 
-// ringCount: rings left by the dash off; ringLayer: their render layer. W (3 rings on layer 2, the only layer-2
-// materials) crashed the HOME menu where V (layers 0, 1, 3) played; the banner test kit varies both.
+// ringCount: rings left by the dash off; ringLayer: their render layer. W (3 rings on layer 2) and X (3 on layer
+// 1, 21 nodes) crashed the HOME menu; Y (2 on layer 1, 19 nodes) plays: the shipped banner.
 var (
-	ringCount = 3
+	ringCount = 2
 	ringLayer = 1
 )
 
